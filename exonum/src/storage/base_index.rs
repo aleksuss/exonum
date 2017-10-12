@@ -30,7 +30,8 @@ use super::{StorageKey, StorageValue, Snapshot, Fork, Iter};
 /// [`StorageValue`]: ../trait.StorageValue.html
 #[derive(Debug)]
 pub struct BaseIndex<T> {
-    prefix: Vec<u8>,
+    name: String,
+    prefix: Option<Vec<u8>>,
     view: T,
 }
 
@@ -59,18 +60,37 @@ impl<T> BaseIndex<T> {
     /// available.
     /// [`&Snapshot`]: ../trait.Snapshot.html
     /// [`&mut Fork`]: ../struct.Fork.html
-    pub fn new(prefix: Vec<u8>, view: T) -> Self {
+    pub fn new(name: &str, view: T) -> Self {
         BaseIndex {
-            prefix: prefix,
-            view: view,
+            name: name.to_string(),
+            prefix: None,
+            view,
+        }
+    }
+
+    /// Creates a new index
+    pub fn with_prefix(name: &str, prefix: Vec<u8>, view: T) -> Self {
+        BaseIndex {
+            name: name.to_string(),
+            prefix: Some(prefix),
+            view,
         }
     }
 
     fn prefixed_key<K: StorageKey>(&self, key: &K) -> Vec<u8> {
-        let mut v = vec![0; self.prefix.len() + key.size()];
-        v[..self.prefix.len()].copy_from_slice(&self.prefix);
-        key.write(&mut v[self.prefix.len()..]);
-        v
+        match self.prefix {
+            Some(prefix) => {
+                let mut v = vec![0; self.prefix.len() + key.size()];
+                v[..self.prefix.len()].copy_from_slice(&self.prefix);
+                key.write(&mut v[self.prefix.len()..]);
+                v
+            },
+            None => {
+                let mut v = vec![0; key.size()];
+                key.write(&mut v);
+                v
+            }
+        }
     }
 }
 
@@ -84,7 +104,7 @@ where
         K: StorageKey,
         V: StorageValue,
     {
-        self.view.as_ref().get(&self.prefixed_key(key)).map(|v| {
+        self.view.as_ref().get(&self.name, &self.prefixed_key(key)).map(|v| {
             StorageValue::from_bytes(Cow::Owned(v))
         })
     }

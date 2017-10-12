@@ -144,7 +144,7 @@ pub trait Database: Send + Sync + 'static {
     /// If this method encounters any form of I/O or other error during merging, an error variant
     /// will be returned. In case of an error the method guarantees no changes were applied to
     /// the database.
-    fn merge(&mut self, patch: Patch) -> Result<()>;
+    fn merge(&mut self,  patch: Patch) -> Result<()>;
 }
 
 /// A trait that defines a snapshot of storage backend.
@@ -159,19 +159,19 @@ pub trait Database: Send + Sync + 'static {
 pub trait Snapshot: 'static {
     /// Returns a value as raw vector of bytes corresponding to the specified key
     /// or `None` if does not exist.
-    fn get(&self, key: &[u8]) -> Option<Vec<u8>>;
+    fn get(&self, table_name: &str, key: &[u8]) -> Option<Vec<u8>>;
 
     /// Returns `true` if the snapshot contains a value for the specified key.
     ///
     /// Default implementation tries to read the value using method [`get`].
     /// [`get`]: #tymethod.get
-    fn contains(&self, key: &[u8]) -> bool {
-        self.get(key).is_some()
+    fn contains(&self, table_name: &str, key: &[u8]) -> bool {
+        self.get(table_name, key).is_some()
     }
 
     /// Returns an iterator over the entries of the snapshot in ascending order starting from
     /// the specified key. The iterator element type is `(&[u8], &[u8])`.
-    fn iter<'a>(&'a self, from: &[u8]) -> Iter<'a>;
+    fn iter<'a>(&'a self, table_name: &str, from: &[u8]) -> Iter<'a>;
 }
 
 /// A trait that defines streaming iterator over storage view entries.
@@ -184,9 +184,9 @@ pub trait Iterator {
 }
 
 impl Snapshot for Fork {
-    fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
+    fn get(&self, table_name: &str, key: &[u8]) -> Option<Vec<u8>> {
         match self.changes.get(key) {
-            Some(change) => {
+            Some(change) => if table_name == change.table_name.0 {
                 match *change {
                     Change::Put(ref v) => Some(v.clone()),
                     Change::Delete => None,
@@ -196,7 +196,7 @@ impl Snapshot for Fork {
         }
     }
 
-    fn contains(&self, key: &[u8]) -> bool {
+    fn contains(&self, table_name: &str, key: &[u8]) -> bool {
         match self.changes.get(key) {
             Some(change) => {
                 match *change {
@@ -208,7 +208,7 @@ impl Snapshot for Fork {
         }
     }
 
-    fn iter<'a>(&'a self, from: &[u8]) -> Iter<'a> {
+    fn iter<'a>(&'a self, table_name: &str, from: &[u8]) -> Iter<'a> {
         let range = (Included(from), Unbounded);
         Box::new(ForkIter {
             snapshot: self.snapshot.iter(from),
@@ -264,7 +264,7 @@ impl Fork {
     }
 
     /// Inserts the key-value pair into the fork.
-    pub fn put(&mut self, key: Vec<u8>, value: Vec<u8>) {
+    pub fn put(&mut self, table_name: &str, key: Vec<u8>, value: Vec<u8>) {
         if self.logged {
             self.changelog.push((
                 key.clone(),
@@ -276,7 +276,7 @@ impl Fork {
     }
 
     /// Removes the key from the fork.
-    pub fn remove(&mut self, key: Vec<u8>) {
+    pub fn remove(&mut self, table_name: &str, key: Vec<u8>) {
         if self.logged {
             self.changelog.push((
                 key.clone(),
@@ -288,7 +288,7 @@ impl Fork {
     }
 
     /// Removes all keys starting with the specified prefix from the fork.
-    pub fn remove_by_prefix(&mut self, prefix: &[u8]) {
+    pub fn remove_by_prefix(&mut self, table_name: &str, prefix: &[u8]) {
         // Remove changes
         let keys = self.changes
             .range::<[u8], _>((Included(prefix), Unbounded))

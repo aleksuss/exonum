@@ -14,8 +14,8 @@
 
 //! An implementation of `RocksDB` database.
 use exonum_profiler::ProfilerSpan;
-use rocksdb::TransactionDB as _RocksDB;
-use rocksdb::DBRawIterator;
+use rocksdb::DB as _RocksDB;
+use rocksdb::{WriteBatch, DBRawIterator};
 use rocksdb::Snapshot as _Snapshot;
 use rocksdb::Error as _Error;
 
@@ -27,7 +27,7 @@ use std::error;
 
 pub use rocksdb::Options as RocksDBOptions;
 pub use rocksdb::BlockBasedOptions as RocksBlockOptions;
-pub use rocksdb::{TransactionDBOptions, TransactionOptions, WriteOptions};
+//pub use rocksdb::{TransactionDBOptions, TransactionOptions, WriteOptions};
 
 use super::{Database, Iterator, Iter, Snapshot, Error, Patch, Change, Result};
 
@@ -59,8 +59,7 @@ struct RocksDBIterator {
 impl RocksDB {
     /// Open a database stored in the specified path with the specified options.
     pub fn open(path: &Path, options: RocksDBOptions) -> Result<RocksDB> {
-        let txn_db_options = TransactionDBOptions::default();
-        let database = _RocksDB::open(&options, &txn_db_options, path)?;
+        let database = _RocksDB::open(&options, path)?;
         Ok(RocksDB { db: Arc::new(database) })
     }
 }
@@ -78,18 +77,16 @@ impl Database for RocksDB {
         })
     }
 
-    fn merge(&mut self, patch: Patch) -> Result<()> {
+    fn merge(&mut self, cf_name: &str, patch: Patch) -> Result<()> {
         let _p = ProfilerSpan::new("RocksDB::merge");
-        let w_opts = WriteOptions::default();
-        let txn_opts = TransactionOptions::default();
-        let txn = self.db.transaction_begin(&w_opts, &txn_opts);
+        let mut batch = WriteBatch::default();
         for (key, change) in patch {
             match change {
-                Change::Put(ref value) => txn.put(&key, value)?,
-                Change::Delete => txn.delete(&key)?,
+                Change::Put(ref value) => batch.put(&key, value)?,
+                Change::Delete => batch.delete(&key)?,
             }
         }
-        txn.commit().map_err(Into::into)
+        self.db.write(batch).map_err(Into::into)
     }
 }
 
@@ -107,7 +104,7 @@ impl Snapshot for RocksDBSnapshot {
         let mut iter = self.snapshot.raw_iterator();
         iter.seek(from);
         Box::new(RocksDBIterator {
-            iter: iter,
+            iter,
             key: None,
             value: None,
         })
