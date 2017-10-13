@@ -22,7 +22,7 @@ use super::Result;
 use self::NextIterValue::*;
 
 /// A set of serial changes that should be applied to a storage atomically.
-pub type Patch = BTreeMap<Vec<u8>, Change>;
+pub type Patch = BTreeMap<String, BTreeMap<Vec<u8>, Change>>;
 
 /// A generalized iterator over the storage views.
 pub type Iter<'a> = Box<Iterator + 'a>;
@@ -72,7 +72,7 @@ pub enum Change {
 pub struct Fork {
     snapshot: Box<Snapshot>,
     changes: Patch,
-    changelog: Vec<(Vec<u8>, Option<Change>)>,
+    changelog: Vec<(String, Vec<u8>, Option<Change>)>,
     logged: bool,
 }
 
@@ -185,33 +185,42 @@ pub trait Iterator {
 
 impl Snapshot for Fork {
     fn get(&self, table_name: &str, key: &[u8]) -> Option<Vec<u8>> {
-        match self.changes.get(key) {
-            Some(change) => if table_name == change.table_name.0 {
-                match *change {
-                    Change::Put(ref v) => Some(v.clone()),
-                    Change::Delete => None,
+        if let Some(table_data) = self.changes.get(table_name) {
+            match table_data.get(key) {
+                Some(change) => {
+                    match *change {
+                        Change::Put(ref v) => Some(v.clone()),
+                        Change::Delete => None,
+                    }
                 }
+                None => self.snapshot.get(key),
             }
-            None => self.snapshot.get(key),
+        } else {
+            None
         }
     }
 
     fn contains(&self, table_name: &str, key: &[u8]) -> bool {
-        match self.changes.get(key) {
-            Some(change) => {
-                match *change {
-                    Change::Put(..) => true,
-                    Change::Delete => false,
+        if let Some(table_data) = self.changes.get(table_name) {
+            match table_data.get(key) {
+                Some(change) => {
+                    match *change {
+                        Change::Put(..) => true,
+                        Change::Delete => false,
+                    }
                 }
+                None => self.snapshot.contains(key),
             }
-            None => self.snapshot.contains(key),
+        } else {
+            false
         }
     }
 
     fn iter<'a>(&'a self, table_name: &str, from: &[u8]) -> Iter<'a> {
         let range = (Included(from), Unbounded);
+
         Box::new(ForkIter {
-            snapshot: self.snapshot.iter(from),
+            snapshot: self.snapshot.iter(table_name, from),
             changes: self.changes.range::<[u8], _>(range).peekable(),
         })
     }

@@ -18,6 +18,7 @@ use rocksdb::DB as _RocksDB;
 use rocksdb::{WriteBatch, DBRawIterator};
 use rocksdb::Snapshot as _Snapshot;
 use rocksdb::Error as _Error;
+use rocksdb::ColumnFamily;
 
 use std::mem;
 use std::sync::Arc;
@@ -77,31 +78,41 @@ impl Database for RocksDB {
         })
     }
 
-    fn merge(&mut self, cf_name: &str, patch: Patch) -> Result<()> {
+    fn merge(&mut self, patch: Patch) -> Result<()> {
         let _p = ProfilerSpan::new("RocksDB::merge");
         let mut batch = WriteBatch::default();
-        for (key, change) in patch {
-            match change {
-                Change::Put(ref value) => batch.put(&key, value)?,
-                Change::Delete => batch.delete(&key)?,
+        for (cf_name, changes) in patch {
+            if let Some(cf) = self.db.cf_handle(cf_name) {
+                for (key, change) in changes {
+                    match change {
+                        Change::Put(ref value) => batch.put_cf(cf, &key, value)?,
+                        Change::Delete => batch.delete_cf(cf, &key)?,
+                    }
+                }
             }
         }
-        self.db.write(batch).map_err(Into::into)
+        if !batch.is_empty() {
+            self.db.write(batch).map_err(Into::into)
+        }
+        Ok(())
     }
 }
 
 impl Snapshot for RocksDBSnapshot {
-    fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
+    fn get(&self, cf_name: &str, key: &[u8]) -> Option<Vec<u8>> {
         let _p = ProfilerSpan::new("RocksDBSnapshot::get");
-        match self.snapshot.get(key) {
-            Ok(value) => value.map(|v| v.to_vec()),
-            Err(e) => panic!(e),
+        if let Some(cf) = self._db.cf_handle(cf_name) {
+            match self.snapshot.get_cf(cf, key) {
+                Ok(value) => value.map(|v| v.to_vec()),
+                Err(e) => panic!(e),
+            }
         }
     }
 
-    fn iter<'a>(&'a self, from: &[u8]) -> Iter<'a> {
+    fn iter<'a>(&'a self, cf_name: &str, from: &[u8]) -> Iter<'a> {
         let _p = ProfilerSpan::new("RocksDBSnapshot::iter");
-        let mut iter = self.snapshot.raw_iterator();
+        if let Some(cf) = self._db.cf_handle(cf_name) {
+        let mut iter = self.snapshot.raw_iterator_cf(cf);
         iter.seek(from);
         Box::new(RocksDBIterator {
             iter,
