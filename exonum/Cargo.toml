@@ -41,9 +41,13 @@ mount = "0.3.0"
 atty = "0.2.2"
 
 exonum_sodiumoxide = { version = "0.0.14" }
-exonum_rocksdb = { version = "0.6.1" }
+#exonum_rocksdb = { version = "0.6.1" }
 exonum_profiler = { version = "0.1.1" }
 exonum_flamer = { version = "0.1.5", optional = true }
+
+[dependencies.exonum_rocksdb]
+git = "https://github.com/aleksuss/exonum_rocksdb.git"
+branch = "optimistic-db"
 
 [dev-dependencies]
 pretty_assertions = "0.2.1"
