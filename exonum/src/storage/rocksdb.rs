@@ -18,7 +18,7 @@ use rocksdb::DB as _RocksDB;
 use rocksdb::{WriteBatch, DBRawIterator};
 use rocksdb::Snapshot as _Snapshot;
 use rocksdb::Error as _Error;
-use rocksdb::ColumnFamily;
+use rocksdb::utils::get_cf_names;
 
 use std::mem;
 use std::sync::Arc;
@@ -28,7 +28,6 @@ use std::error;
 
 pub use rocksdb::Options as RocksDBOptions;
 pub use rocksdb::BlockBasedOptions as RocksBlockOptions;
-//pub use rocksdb::{TransactionDBOptions, TransactionOptions, WriteOptions};
 
 use super::{Database, Iterator, Iter, Snapshot, Error, Patch, Change, Result};
 
@@ -60,8 +59,15 @@ struct RocksDBIterator {
 impl RocksDB {
     /// Open a database stored in the specified path with the specified options.
     pub fn open(path: &Path, options: RocksDBOptions) -> Result<RocksDB> {
-        let database = _RocksDB::open(&options, path)?;
-        Ok(RocksDB { db: Arc::new(database) })
+        let db = {
+            if let Ok(names) = get_cf_names(path) {
+                let cf_names = names.iter().map(|name| name.as_str()).collect::<Vec<_>>();
+                _RocksDB::open_cf(&options, path, cf_names.as_ref())?
+            } else {
+                _RocksDB::open(&options, path)?
+            }
+        };
+        Ok(RocksDB { db: Arc::new(db) })
     }
 }
 
@@ -74,7 +80,7 @@ impl Database for RocksDB {
         let _p = ProfilerSpan::new("RocksDB::snapshot");
         Box::new(RocksDBSnapshot {
             snapshot: unsafe { mem::transmute(self.db.snapshot()) },
-            _db: self.db.clone(),
+            _db: Arc::clone(&self.db),
         })
     }
 
@@ -82,19 +88,22 @@ impl Database for RocksDB {
         let _p = ProfilerSpan::new("RocksDB::merge");
         let mut batch = WriteBatch::default();
         for (cf_name, changes) in patch {
-            if let Some(cf) = self.db.cf_handle(cf_name) {
-                for (key, change) in changes {
-                    match change {
-                        Change::Put(ref value) => batch.put_cf(cf, &key, value)?,
-                        Change::Delete => batch.delete_cf(cf, &key)?,
-                    }
+            let cf = match self.db.cf_handle(&cf_name) {
+                Some(cf) => cf,
+                None => {
+                    self.db
+                        .create_cf(&cf_name, &RocksDBOptions::default())
+                        .unwrap()
+                }
+            };
+            for (key, change) in changes {
+                match change {
+                    Change::Put(ref value) => batch.put_cf(cf, &key, value)?,
+                    Change::Delete => batch.delete_cf(cf, &key)?,
                 }
             }
         }
-        if !batch.is_empty() {
-            self.db.write(batch).map_err(Into::into)
-        }
-        Ok(())
+        self.db.write(batch).map_err(Into::into)
     }
 }
 
@@ -106,14 +115,21 @@ impl Snapshot for RocksDBSnapshot {
                 Ok(value) => value.map(|v| v.to_vec()),
                 Err(e) => panic!(e),
             }
+        } else {
+            None
         }
     }
 
     fn iter<'a>(&'a self, cf_name: &str, from: &[u8]) -> Iter<'a> {
         let _p = ProfilerSpan::new("RocksDBSnapshot::iter");
-        if let Some(cf) = self._db.cf_handle(cf_name) {
-        let mut iter = self.snapshot.raw_iterator_cf(cf);
-        iter.seek(from);
+        let iter = match self._db.cf_handle(cf_name) {
+            Some(cf) => {
+                let mut iter = self.snapshot.raw_iterator_cf(cf).unwrap();
+                iter.seek(from);
+                iter
+            }
+            None => self.snapshot.raw_iterator(),
+        };
         Box::new(RocksDBIterator {
             iter,
             key: None,

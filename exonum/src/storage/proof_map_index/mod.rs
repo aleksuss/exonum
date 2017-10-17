@@ -125,9 +125,9 @@ impl<T, K, V> ProofMapIndex<T, K, V> {
     /// # drop(index);
     /// # drop(mut_index);
     /// ```
-    pub fn new(prefix: Vec<u8>, view: T) -> Self {
+    pub fn new(name: &str, view: T) -> Self {
         ProofMapIndex {
-            base: BaseIndex::new(prefix, view),
+            base: BaseIndex::new(name, view),
             _k: PhantomData,
             _v: PhantomData,
         }

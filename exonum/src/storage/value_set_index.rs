@@ -76,9 +76,9 @@ impl<T, V> ValueSetIndex<T, V> {
     /// let index: ValueSetIndex<_, u8> = ValueSetIndex::new(prefix, &snapshot);
     /// # drop(index);
     /// ```
-    pub fn new(prefix: Vec<u8>, view: T) -> Self {
+    pub fn new(name: &str, view: T) -> Self {
         ValueSetIndex {
-            base: BaseIndex::new(prefix, view),
+            base: BaseIndex::new(name, view),
             _v: PhantomData,
         }
     }

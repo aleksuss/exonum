@@ -41,7 +41,8 @@ mount = "0.3.0"
 atty = "0.2.2"
 
 exonum_sodiumoxide = { version = "0.0.14" }
-exonum_rocksdb = { version = "0.6.1" }
+#exonum_rocksdb = { version = "0.6.1" }
+exonum_rocksdb = { version = "0.6.1", path = "../../exonum_rocksdb" }
 exonum_profiler = { version = "0.1.1" }
 exonum_flamer = { version = "0.1.5", optional = true }
 

@@ -14,20 +14,26 @@
 
 use super::{Database, Snapshot, Fork};
 
+const TABLE_NAME: &'static str = "table";
+
 fn fork_iter<T: Database>(mut db: T) {
     let mut fork = db.fork();
 
-    fork.put(vec![10], vec![10]);
-    fork.put(vec![20], vec![20]);
-    fork.put(vec![30], vec![30]);
+    fork.put(TABLE_NAME, vec![10], vec![10]);
+    fork.put(TABLE_NAME, vec![20], vec![20]);
+    fork.put(TABLE_NAME, vec![30], vec![30]);
+
+    assert!(fork.contains(TABLE_NAME, &[10]));
 
     db.merge(fork.into_patch()).unwrap();
 
     let mut fork = db.fork();
 
+    assert!(fork.contains(TABLE_NAME, &[10]));
+
     fn assert_iter(fork: &Fork, from: u8, assumed: &[(u8, u8)]) {
         let mut values = Vec::new();
-        let mut iter = fork.iter(&[from]);
+        let mut iter = fork.iter(TABLE_NAME, &[from]);
         while let Some((k, v)) = iter.next() {
             values.push((k[0], v[0]));
         }
@@ -42,11 +48,11 @@ fn fork_iter<T: Database>(mut db: T) {
     assert_iter(&fork, 31, &[]);
 
     // Inserted
-    fork.put(vec![5], vec![5]);
+    fork.put(TABLE_NAME, vec![5], vec![5]);
     assert_iter(&fork, 0, &[(5, 5), (10, 10), (20, 20), (30, 30)]);
-    fork.put(vec![25], vec![25]);
+    fork.put(TABLE_NAME, vec![25], vec![25]);
     assert_iter(&fork, 0, &[(5, 5), (10, 10), (20, 20), (25, 25), (30, 30)]);
-    fork.put(vec![35], vec![35]);
+    fork.put(TABLE_NAME, vec![35], vec![35]);
     assert_iter(
         &fork,
         0,
@@ -54,13 +60,13 @@ fn fork_iter<T: Database>(mut db: T) {
     );
 
     // Double inserted
-    fork.put(vec![25], vec![23]);
+    fork.put(TABLE_NAME, vec![25], vec![23]);
     assert_iter(
         &fork,
         0,
         &[(5, 5), (10, 10), (20, 20), (25, 23), (30, 30), (35, 35)],
     );
-    fork.put(vec![26], vec![26]);
+    fork.put(TABLE_NAME, vec![26], vec![26]);
     assert_iter(
         &fork,
         0,
@@ -69,96 +75,96 @@ fn fork_iter<T: Database>(mut db: T) {
 
     // Replaced
     let mut fork = db.fork();
-    fork.put(vec![10], vec![11]);
+    fork.put(TABLE_NAME, vec![10], vec![11]);
     assert_iter(&fork, 0, &[(10, 11), (20, 20), (30, 30)]);
-    fork.put(vec![30], vec![31]);
+    fork.put(TABLE_NAME, vec![30], vec![31]);
     assert_iter(&fork, 0, &[(10, 11), (20, 20), (30, 31)]);
 
     // Deleted
     let mut fork = db.fork();
-    fork.remove(vec![20]);
+    fork.remove(TABLE_NAME, vec![20]);
     assert_iter(&fork, 0, &[(10, 10), (30, 30)]);
-    fork.remove(vec![10]);
+    fork.remove(TABLE_NAME, vec![10]);
     assert_iter(&fork, 0, &[(30, 30)]);
-    fork.put(vec![10], vec![11]);
+    fork.put(TABLE_NAME, vec![10], vec![11]);
     assert_iter(&fork, 0, &[(10, 11), (30, 30)]);
-    fork.remove(vec![10]);
+    fork.remove(TABLE_NAME, vec![10]);
     assert_iter(&fork, 0, &[(30, 30)]);
 
     // MissDeleted
     let mut fork = db.fork();
-    fork.remove(vec![5]);
+    fork.remove(TABLE_NAME, vec![5]);
     assert_iter(&fork, 0, &[(10, 10), (20, 20), (30, 30)]);
-    fork.remove(vec![15]);
+    fork.remove(TABLE_NAME, vec![15]);
     assert_iter(&fork, 0, &[(10, 10), (20, 20), (30, 30)]);
-    fork.remove(vec![35]);
+    fork.remove(TABLE_NAME, vec![35]);
     assert_iter(&fork, 0, &[(10, 10), (20, 20), (30, 30)]);
 }
 
 fn changelog<T: Database>(db: T) {
     let mut fork = db.fork();
 
-    fork.put(vec![1], vec![1]);
-    fork.put(vec![2], vec![2]);
-    fork.put(vec![3], vec![3]);
+    fork.put(TABLE_NAME, vec![1], vec![1]);
+    fork.put(TABLE_NAME, vec![2], vec![2]);
+    fork.put(TABLE_NAME, vec![3], vec![3]);
 
-    assert_eq!(fork.get(&[1]), Some(vec![1]));
-    assert_eq!(fork.get(&[2]), Some(vec![2]));
-    assert_eq!(fork.get(&[3]), Some(vec![3]));
-
-    fork.checkpoint();
-
-    assert_eq!(fork.get(&[1]), Some(vec![1]));
-    assert_eq!(fork.get(&[2]), Some(vec![2]));
-    assert_eq!(fork.get(&[3]), Some(vec![3]));
-
-    fork.put(vec![1], vec![10]);
-    fork.put(vec![4], vec![40]);
-    fork.remove(vec![2]);
-
-    assert_eq!(fork.get(&[1]), Some(vec![10]));
-    assert_eq!(fork.get(&[2]), None);
-    assert_eq!(fork.get(&[3]), Some(vec![3]));
-    assert_eq!(fork.get(&[4]), Some(vec![40]));
-
-    fork.rollback();
-
-    assert_eq!(fork.get(&[1]), Some(vec![1]));
-    assert_eq!(fork.get(&[2]), Some(vec![2]));
-    assert_eq!(fork.get(&[3]), Some(vec![3]));
-    assert_eq!(fork.get(&[4]), None);
+    assert_eq!(fork.get(TABLE_NAME, &[1]), Some(vec![1]));
+    assert_eq!(fork.get(TABLE_NAME, &[2]), Some(vec![2]));
+    assert_eq!(fork.get(TABLE_NAME, &[3]), Some(vec![3]));
 
     fork.checkpoint();
 
-    fork.put(vec![4], vec![40]);
-    fork.put(vec![4], vec![41]);
-    fork.remove(vec![2]);
-    fork.put(vec![2], vec![20]);
+    assert_eq!(fork.get(TABLE_NAME, &[1]), Some(vec![1]));
+    assert_eq!(fork.get(TABLE_NAME, &[2]), Some(vec![2]));
+    assert_eq!(fork.get(TABLE_NAME, &[3]), Some(vec![3]));
 
-    assert_eq!(fork.get(&[1]), Some(vec![1]));
-    assert_eq!(fork.get(&[2]), Some(vec![20]));
-    assert_eq!(fork.get(&[3]), Some(vec![3]));
-    assert_eq!(fork.get(&[4]), Some(vec![41]));
+    fork.put(TABLE_NAME, vec![1], vec![10]);
+    fork.put(TABLE_NAME, vec![4], vec![40]);
+    fork.remove(TABLE_NAME, vec![2]);
+
+    assert_eq!(fork.get(TABLE_NAME, &[1]), Some(vec![10]));
+    assert_eq!(fork.get(TABLE_NAME, &[2]), None);
+    assert_eq!(fork.get(TABLE_NAME, &[3]), Some(vec![3]));
+    assert_eq!(fork.get(TABLE_NAME, &[4]), Some(vec![40]));
 
     fork.rollback();
 
-    assert_eq!(fork.get(&[1]), Some(vec![1]));
-    assert_eq!(fork.get(&[2]), Some(vec![2]));
-    assert_eq!(fork.get(&[3]), Some(vec![3]));
-    assert_eq!(fork.get(&[4]), None);
-
-    fork.put(vec![2], vec![20]);
+    assert_eq!(fork.get(TABLE_NAME, &[1]), Some(vec![1]));
+    assert_eq!(fork.get(TABLE_NAME, &[2]), Some(vec![2]));
+    assert_eq!(fork.get(TABLE_NAME, &[3]), Some(vec![3]));
+    assert_eq!(fork.get(TABLE_NAME, &[4]), None);
 
     fork.checkpoint();
 
-    fork.put(vec![3], vec![30]);
+    fork.put(TABLE_NAME, vec![4], vec![40]);
+    fork.put(TABLE_NAME, vec![4], vec![41]);
+    fork.remove(TABLE_NAME, vec![2]);
+    fork.put(TABLE_NAME, vec![2], vec![20]);
+
+    assert_eq!(fork.get(TABLE_NAME, &[1]), Some(vec![1]));
+    assert_eq!(fork.get(TABLE_NAME, &[2]), Some(vec![20]));
+    assert_eq!(fork.get(TABLE_NAME, &[3]), Some(vec![3]));
+    assert_eq!(fork.get(TABLE_NAME, &[4]), Some(vec![41]));
 
     fork.rollback();
 
-    assert_eq!(fork.get(&[1]), Some(vec![1]));
-    assert_eq!(fork.get(&[2]), Some(vec![20]));
-    assert_eq!(fork.get(&[3]), Some(vec![3]));
-    assert_eq!(fork.get(&[4]), None);
+    assert_eq!(fork.get(TABLE_NAME, &[1]), Some(vec![1]));
+    assert_eq!(fork.get(TABLE_NAME, &[2]), Some(vec![2]));
+    assert_eq!(fork.get(TABLE_NAME, &[3]), Some(vec![3]));
+    assert_eq!(fork.get(TABLE_NAME, &[4]), None);
+
+    fork.put(TABLE_NAME, vec![2], vec![20]);
+
+    fork.checkpoint();
+
+    fork.put(TABLE_NAME, vec![3], vec![30]);
+
+    fork.rollback();
+
+    assert_eq!(fork.get(TABLE_NAME, &[1]), Some(vec![1]));
+    assert_eq!(fork.get(TABLE_NAME, &[2]), Some(vec![20]));
+    assert_eq!(fork.get(TABLE_NAME, &[3]), Some(vec![3]));
+    assert_eq!(fork.get(TABLE_NAME, &[4]), None);
 }
 
 
@@ -180,34 +186,6 @@ mod memorydb_tests {
     }
 }
 
-#[cfg(feature = "leveldb")]
-mod leveldb_tests {
-    use std::path::Path;
-    use tempdir::TempDir;
-    use super::super::{LevelDB, LevelDBOptions};
-
-    fn leveldb_database(path: &Path) -> LevelDB {
-        let mut options = LevelDBOptions::new();
-        options.create_if_missing = true;
-        LevelDB::open(path, options).unwrap()
-    }
-
-    #[test]
-    fn test_leveldb_fork_iter() {
-        let dir = TempDir::new("exonum_leveldb1").unwrap();
-        let path = dir.path();
-        super::fork_iter(leveldb_database(path));
-    }
-
-    #[test]
-    fn test_leveldb_changelog() {
-        let dir = TempDir::new("exonum_leveldb2").unwrap();
-        let path = dir.path();
-        super::changelog(leveldb_database(path));
-    }
-}
-
-#[cfg(feature = "rocksdb")]
 mod rocksdb_tests {
     use std::path::Path;
     use tempdir::TempDir;

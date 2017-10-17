@@ -49,9 +49,9 @@ impl<T, V> Entry<T, V> {
     /// let index: Entry<_, u8> = Entry::new(prefix, &snapshot);
     /// # drop(index);
     /// ```
-    pub fn new(prefix: Vec<u8>, view: T) -> Self {
+    pub fn new(name: &str, view: T) -> Self {
         Entry {
-            base: BaseIndex::new(prefix, view),
+            base: BaseIndex::new(name, view),
             _v: PhantomData,
         }
     }

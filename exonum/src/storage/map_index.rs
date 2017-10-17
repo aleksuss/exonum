@@ -89,9 +89,9 @@ impl<T, K, V> MapIndex<T, K, V> {
     /// let index: MapIndex<_, u8, u8> = MapIndex::new(prefix, &snapshot);
     /// # drop(index);
     /// ```
-    pub fn new(prefix: Vec<u8>, view: T) -> Self {
+    pub fn new(name: &str, view: T) -> Self {
         MapIndex {
-            base: BaseIndex::new(prefix, view),
+            base: BaseIndex::new(name, view),
             _k: PhantomData,
             _v: PhantomData,
         }
@@ -384,9 +384,11 @@ mod tests {
     use super::MapIndex;
     use rand::{thread_rng, Rng};
 
+    const TABLE_NAME: &'static str = "table";
+
     fn iter(db: Box<Database>) {
         let mut fork = db.fork();
-        let mut map_index = MapIndex::new(vec![255], &mut fork);
+        let mut map_index = MapIndex::new(TABLE_NAME, &mut fork);
 
         map_index.put(&1u8, 1u8);
         map_index.put(&2u8, 2u8);
@@ -464,29 +466,6 @@ mod tests {
 
     }
 
-    #[cfg(feature = "leveldb")]
-    mod leveldb_tests {
-        use std::path::Path;
-        use storage::Database;
-        use tempdir::TempDir;
-
-        fn create_database(path: &Path) -> Box<Database> {
-            use storage::{LevelDB, LevelDBOptions};
-            let mut opts = LevelDBOptions::default();
-            opts.create_if_missing = true;
-            Box::new(LevelDB::open(path, opts).unwrap())
-        }
-
-        #[test]
-        fn test_iter() {
-            let dir = TempDir::new(super::gen_tempdir_name().as_str()).unwrap();
-            let path = dir.path();
-            let db = create_database(path);
-            super::iter(db);
-        }
-    }
-
-    #[cfg(feature = "rocksdb")]
     mod rocksdb_tests {
         use std::path::Path;
         use storage::Database;

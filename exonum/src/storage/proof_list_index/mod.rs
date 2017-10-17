@@ -81,9 +81,9 @@ impl<T, V> ProofListIndex<T, V> {
     /// # drop(index);
     /// # drop(mut_index);
     /// ```
-    pub fn new(prefix: Vec<u8>, view: T) -> Self {
+    pub fn new(name: &str, view: T) -> Self {
         ProofListIndex {
-            base: BaseIndex::new(prefix, view),
+            base: BaseIndex::new(name, view),
             length: Cell::new(None),
             _v: PhantomData,
         }

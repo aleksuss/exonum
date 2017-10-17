@@ -61,9 +61,9 @@ impl<T, K> KeySetIndex<T, K> {
     /// let index: KeySetIndex<_, u8> = KeySetIndex::new(prefix, &snapshot);
     /// # drop(index);
     /// ```
-    pub fn new(prefix: Vec<u8>, view: T) -> Self {
+    pub fn new(name: &str, view: T) -> Self {
         KeySetIndex {
-            base: BaseIndex::new(prefix, view),
+            base: BaseIndex::new(name, view),
             _k: PhantomData,
         }
     }
