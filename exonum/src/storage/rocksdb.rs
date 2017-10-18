@@ -53,8 +53,8 @@ pub struct RocksDBSnapshot {
 /// An iterator over the entries of a `RocksDB`.
 struct RocksDBIterator {
     iter: Peekable<DBIterator>,
-    key: Option<Vec<u8>>,
-    value: Option<Vec<u8>>,
+    key: Option<Box<[u8]>>,
+    value: Option<Box<[u8]>>,
 }
 
 impl RocksDB {
@@ -143,12 +143,12 @@ impl Snapshot for RocksDBSnapshot {
 impl<'a> Iterator for RocksDBIterator {
     fn next(&mut self) -> Option<(&[u8], &[u8])> {
         let _p = ProfilerSpan::new("RocksDBIterator::next");
-        if let Some(entry) = self.iter.next() {
-            self.key = Some(entry.0.to_vec());
-            self.value = Some(entry.1.to_vec());
+        if let Some((key, value)) = self.iter.next() {
+            self.key = Some(key);
+            self.value = Some(value);
             Some((
-                self.key.as_ref().unwrap().as_ref(),
-                self.value.as_ref().unwrap().as_ref(),
+                self.key.as_ref().unwrap(),
+                self.value.as_ref().unwrap(),
             ))
         } else {
             None
@@ -157,13 +157,8 @@ impl<'a> Iterator for RocksDBIterator {
 
     fn peek(&mut self) -> Option<(&[u8], &[u8])> {
         let _p = ProfilerSpan::new("RocksDBIterator::peek");
-        if let Some(entry) = self.iter.peek() {
-            self.key = Some(entry.0.to_vec());
-            self.value = Some(entry.1.to_vec());
-            Some((
-                self.key.as_ref().unwrap().as_ref(),
-                self.value.as_ref().unwrap().as_ref(),
-            ))
+        if let Some(&(ref key, ref value)) = self.iter.peek() {
+            Some((key, value))
         } else {
             None
         }
