@@ -169,7 +169,7 @@ mod tests {
         let mut block_options = RocksBlockOptions::default();
         block_options.set_block_size(4 * 1024);
         block_options.set_lru_cache(512 * 1024 * 1024);
-        block_options.set_bloom_filter(128, true);
+        block_options.set_bloom_filter(32, true);
         block_options.set_cache_index_and_filter_blocks(true);
         let mut options = RocksDBOptions::default();
         options.create_if_missing(true);
@@ -179,6 +179,7 @@ mod tests {
         options.set_max_open_files(-1);
         options.set_block_based_table_factory(&block_options);
         options.set_max_bytes_for_level_base(512 * 1024 * 1024);
+        options.set_disable_auto_compactions(true);
         let db = Box::new(RocksDB::open(tempdir.path(), options).unwrap());
         db as Box<Database>
     }
