@@ -99,7 +99,7 @@ enum RemoveResult {
     UpdateHash(Hash),
 }
 
-impl<T, K, V> ProofMapIndex<T, K, V> {
+impl<T, K, V> ProofMapIndex<T, K, V> where T: AsRef<Snapshot> {
     /// Creates a new index representation based on the common prefix of its keys and storage view.
     ///
     /// Storage view can be specified as [`&Snapshot`] or [`&mut Fork`]. In the first case only

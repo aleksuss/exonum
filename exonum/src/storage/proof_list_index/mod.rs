@@ -56,7 +56,7 @@ pub struct ProofListIndexIter<'a, V> {
     base_iter: BaseIndexIter<'a, ProofListKey, V>,
 }
 
-impl<T, V> ProofListIndex<T, V> {
+impl<T, V> ProofListIndex<T, V> where T: AsRef<Snapshot> {
     /// Creates a new index representation based on the common prefix of its keys and storage view.
     ///
     /// Storage view can be specified as [`&Snapshot`] or [`&mut Fork`]. In the first case only

@@ -43,7 +43,7 @@ pub struct ListIndexIter<'a, V> {
     base_iter: BaseIndexIter<'a, u64, V>,
 }
 
-impl<T, V> ListIndex<T, V> {
+impl<T, V> ListIndex<T, V> where T: AsRef<Snapshot> {
     /// Creates a new index representation based on the common prefix of its keys and storage view.
     ///
     /// Storage view can be specified as [`&Snapshot`] or [`&mut Fork`]. In the first case only

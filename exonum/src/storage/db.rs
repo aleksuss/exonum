@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::btree_map::{BTreeMap, Range};
 use std::collections::Bound::*;
@@ -23,7 +24,13 @@ use super::Result;
 use self::NextIterValue::*;
 
 /// A set of serial changes that should be applied to a storage atomically.
-pub type Patch = HashMap<String, BTreeMap<Vec<u8>, Change>>;
+#[derive(Debug, Clone)]
+pub struct Patch {
+    /// Mappings
+    pub mapping: RefCell<HashMap<String, usize>>,
+    /// Changes
+    pub changes: Vec<BTreeMap<Vec<u8>, Change>>,
+}
 
 /// A generalized iterator over the storage views.
 pub type Iter<'a> = Box<Iterator + 'a>;
@@ -72,8 +79,8 @@ pub enum Change {
 // FIXME: make &mut Fork "unwind safe"
 pub struct Fork {
     snapshot: Box<Snapshot>,
-    changes: Patch,
-    changelog: Vec<(String, Vec<u8>, Option<Change>)>,
+    patch: Patch,
+    changelog: Vec<(usize, Vec<u8>, Option<Change>)>,
     logged: bool,
 }
 
@@ -133,7 +140,7 @@ pub trait Database: Send + Sync + 'static {
     fn fork(&self) -> Fork {
         Fork {
             snapshot: self.snapshot(),
-            changes: Patch::new(),
+            patch: Patch::new(),
             changelog: Vec::new(),
             logged: false,
         }
@@ -160,19 +167,22 @@ pub trait Database: Send + Sync + 'static {
 pub trait Snapshot: 'static {
     /// Returns a value as raw vector of bytes corresponding to the specified key
     /// or `None` if does not exist.
-    fn get(&self, table_name: &str, key: &[u8]) -> Option<Vec<u8>>;
+    fn get(&self, name_idx: usize, key: &[u8]) -> Option<Vec<u8>>;
 
     /// Returns `true` if the snapshot contains a value for the specified key.
     ///
     /// Default implementation tries to read the value using method [`get`].
     /// [`get`]: #tymethod.get
-    fn contains(&self, table_name: &str, key: &[u8]) -> bool {
-        self.get(table_name, key).is_some()
+    fn contains(&self, name_idx: usize, key: &[u8]) -> bool {
+        self.get(name_idx, key).is_some()
     }
 
     /// Returns an iterator over the entries of the snapshot in ascending order starting from
     /// the specified key. The iterator element type is `(&[u8], &[u8])`.
-    fn iter<'a>(&'a self, table_name: &str, from: &[u8]) -> Iter<'a>;
+    fn iter<'a>(&'a self, name_idx: usize, from: &[u8]) -> Iter<'a>;
+
+    /// Getting index by name
+    fn get_index(&self, name: &str) -> usize;
 }
 
 /// A trait that defines streaming iterator over storage view entries.
@@ -184,40 +194,79 @@ pub trait Iterator {
     fn peek(&mut self) -> Option<(&[u8], &[u8])>;
 }
 
+impl Patch {
+    /// Creates a new `Patch`
+    pub fn new() -> Self {
+        Patch {
+            mapping: RefCell::new(HashMap::new()),
+            changes: Vec::new(),
+        }
+    }
+
+//    pub fn get_changes(&self, name_idx: usize) -> Option<&BTreeMap<Vec<u8>, Change>> {
+//        self.changes.get(name_idx)
+//    }
+//
+//    pub fn get_changes_mut(&mut self, name_idx: usize) -> &mut BTreeMap<Vec<u8>, Change> {
+//        self.changes.borrow_mut().get_mut(name_idx).unwrap()
+//    }
+//
+//    pub fn get_change(&self, name_idx: usize, key: &[u8]) -> Option<&Change> {
+//        if let Some(changes) = self.changes.get(name_idx) {
+//            changes.get(key)
+//        } else {
+//            None
+//        }
+//    }
+}
+
 impl Snapshot for Fork {
-    fn get(&self, table_name: &str, key: &[u8]) -> Option<Vec<u8>> {
-        if let Some(table_data) = self.changes.get(table_name) {
-            if let Some(change) = table_data.get(key) {
+    fn get(&self, name_idx: usize, key: &[u8]) -> Option<Vec<u8>> {
+        if let Some(changes) = self.patch.changes.get(name_idx) {
+            if let Some(change) = changes.get(key) {
                 match *change {
                     Change::Put(ref v) => return Some(v.clone()),
                     Change::Delete => return None,
                 }
             }
         }
-        self.snapshot.get(table_name, key)
+        self.snapshot.get(name_idx, key)
     }
 
-    fn contains(&self, table_name: &str, key: &[u8]) -> bool {
-        if let Some(table_data) = self.changes.get(table_name) {
-            if let Some(change) = table_data.get(key) {
+    fn contains(&self, name_idx: usize, key: &[u8]) -> bool {
+        if let Some(changes) = self.patch.changes.get(name_idx) {
+            if let Some(change) = changes.get(key) {
                 match *change {
                     Change::Put(..) => return true,
                     Change::Delete => return false,
                 }
             }
         }
-        self.snapshot.contains(table_name, key)
+        self.snapshot.contains(name_idx, key)
     }
 
-    fn iter<'a>(&'a self, table_name: &str, from: &[u8]) -> Iter<'a> {
+    fn iter<'a>(&'a self, name_idx: usize, from: &[u8]) -> Iter<'a> {
         let range = (Included(from), Unbounded);
+        let changes = match self.patch.changes.get(name_idx) {
+            Some(changes) => Some(changes.range::<[u8], _>(range).peekable()),
+            None => None,
+        };
 
         Box::new(ForkIter {
-            snapshot: self.snapshot.iter(table_name, from),
-            changes: self.changes.get(table_name).and_then(|changes| {
-                Some(changes.range::<[u8], _>(range).peekable())
-            }), // range(range).peekable(),
+            snapshot: self.snapshot.iter(name_idx, from),
+            changes,
         })
+    }
+
+    fn get_index(&self, name: &str) -> usize {
+        if let Some(idx) = self.patch.mapping.borrow().get(name) {
+            return *idx;
+        }
+        let idx = self.snapshot.get_index(name);
+        {
+            self.patch.mapping.borrow_mut().insert(name.to_string(), idx);
+        }
+        idx
     }
 }
 
@@ -258,8 +307,8 @@ impl Fork {
         if !self.logged {
             panic!("call rollback before checkpoint");
         }
-        for (table_name, k, c) in self.changelog.drain(..).rev() {
-            if let Some(changes) = self.changes.get_mut(&table_name) {
+        for (name_idx, k, c) in self.changelog.drain(..).rev() {
+            if let Some(changes) = self.patch.changes.get_mut(name_idx) {
                 match c {
                     Some(change) => changes.insert(k, change),
                     None => changes.remove(&k),
@@ -270,65 +319,69 @@ impl Fork {
     }
 
     /// Inserts the key-value pair into the fork.
-    pub fn put(&mut self, table_name: &str, key: Vec<u8>, value: Vec<u8>) {
-        if !self.changes.contains_key(table_name) {
-            self.changes.insert(table_name.to_string(), BTreeMap::new());
+    pub fn put(&mut self, name_idx: usize, key: Vec<u8>, value: Vec<u8>) {
+        let actual_len = self.patch.mapping.borrow().len();
+
+        if actual_len > self.patch.changes.len() {
+            self.patch.changes.resize(actual_len, BTreeMap::new());
         }
-        let changes = self.changes.get_mut(table_name).unwrap();
+
         if self.logged {
             self.changelog.push((
-                table_name.to_string(),
+                name_idx,
                 key.clone(),
-                changes.insert(key, Change::Put(value)),
+                self.patch.changes.get_mut(name_idx).unwrap().insert(key, Change::Put(value)),
             ));
         } else {
-            changes.insert(key, Change::Put(value));
+            self.patch.changes.get_mut(name_idx).unwrap().insert(key, Change::Put(value));
         }
     }
 
     /// Removes the key from the fork.
-    pub fn remove(&mut self, table_name: &str, key: Vec<u8>) {
-        if !self.changes.contains_key(table_name) {
-            self.changes.insert(table_name.to_string(), BTreeMap::new());
+    pub fn remove(&mut self, name_idx: usize, key: Vec<u8>) {
+        let actual_len = self.patch.mapping.borrow().len();
+
+        if actual_len > self.patch.changes.len() {
+            self.patch.changes.resize(actual_len, BTreeMap::new());
         }
-        let changes = self.changes.get_mut(table_name).unwrap();
         if self.logged {
             self.changelog.push((
-                table_name.to_string(),
+                name_idx,
                 key.clone(),
-                changes.insert(key, Change::Delete),
+                self.patch.changes.get_mut(name_idx).unwrap().insert(key, Change::Delete),
             ));
         } else {
-            changes.insert(key, Change::Delete);
+            self.patch.changes.get_mut(name_idx).unwrap().insert(key, Change::Delete);
         }
     }
 
     /// Removes all keys starting with the specified prefix from the fork.
-    pub fn remove_by_prefix(&mut self, table_name: &str, prefix: &[u8]) {
-        if !self.changes.contains_key(table_name) {
-            self.changes.insert(table_name.to_string(), BTreeMap::new());
+    pub fn remove_by_prefix(&mut self, name_idx: usize, prefix: &[u8]) {
+        let actual_len = self.patch.mapping.borrow().len();
+
+        if actual_len > self.patch.changes.len() {
+            self.patch.changes.resize(actual_len, BTreeMap::new());
         }
-        let changes = self.changes.get_mut(table_name).unwrap();
         // Remove changes
-        let keys = changes
+        let keys = self.patch.changes.get(name_idx).unwrap()
             .range::<[u8], _>((Included(prefix), Unbounded))
             .map(|(k, _)| k.to_vec())
             .take_while(|k| k.starts_with(prefix))
             .collect::<Vec<_>>();
         for k in keys {
-            changes.remove(&k);
+            self.patch.changes.get_mut(name_idx).unwrap().remove(&k);
         }
         // Remove from storage
-        let mut iter = self.snapshot.iter(table_name, prefix);
+        let mut iter = self.snapshot.iter(name_idx, prefix);
         while let Some((k, ..)) = iter.next() {
             if !k.starts_with(prefix) {
                 return;
             }
 
-            let change = changes.insert(k.to_vec(), Change::Delete);
+            let change = self.patch.changes.get_mut(name_idx).unwrap().insert(k.to_vec(), Change::Delete);
             if self.logged {
                 self.changelog.push(
-                    (table_name.to_string(), k.to_vec(), change),
+                    (name_idx, k.to_vec(), change),
                 );
             }
         }
@@ -336,7 +389,7 @@ impl Fork {
 
     /// Converts the fork into `Patch`.
     pub fn into_patch(self) -> Patch {
-        self.changes
+        self.patch
     }
 
     /// Merges patch from another fork to this fork.
@@ -351,7 +404,19 @@ impl Fork {
         if self.logged {
             panic!("call merge before commit or rollback");
         }
-        self.changes.extend(patch)
+
+        for (name, idx) in patch.mapping.borrow().iter() {
+            if let Some(changes) = patch.changes.get(*idx).cloned() {
+                let mut mapping = self.patch.mapping.borrow_mut();
+                let new_idx = mapping.len();
+                if let Some(idx) = mapping.get(name) {
+                    self.patch.changes.get_mut(*idx).unwrap().extend(changes);
+                } else {
+                    self.patch.changes.push(changes);
+                }
+                mapping.insert(name.to_string(), new_idx);
+            }
+        }
     }
 }
 

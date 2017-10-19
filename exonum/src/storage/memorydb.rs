@@ -63,16 +63,16 @@ impl Database for MemoryDB {
     }
 
     fn merge(&mut self, patch: Patch) -> Result<()> {
-        for (cf_name, changes) in patch {
+        for (cf_name, idx) in patch.mapping.borrow().iter() {
             let mut guard = self.map.write().unwrap();
-            if !guard.contains_key(&cf_name) {
+            if !guard.contains_key(cf_name) {
                 guard.insert(cf_name.clone(), BTreeMap::new());
             }
-            let table = guard.get_mut(&cf_name).unwrap();
-            for (key, change) in changes {
+            let table = guard.get_mut(cf_name).unwrap();
+            for (key, change) in patch.changes.get(*idx).cloned().unwrap() {
                 match change {
-                    Change::Put(value) => {
-                        table.insert(key, value);
+                    Change::Put(ref value) => {
+                        table.insert(key, value.to_vec());
                     }
                     Change::Delete => {
                         table.remove(&key);
@@ -85,13 +85,15 @@ impl Database for MemoryDB {
 }
 
 impl Snapshot for MemoryDB {
-    fn get(&self, cf_name: &str, key: &[u8]) -> Option<Vec<u8>> {
+    fn get(&self, _name_idx: usize, key: &[u8]) -> Option<Vec<u8>> {
+        let cf_name = "ddddd";
         self.map.read().unwrap().get(cf_name).and_then(|table| {
             table.get(key).cloned()
         })
     }
 
-    fn contains(&self, cf_name: &str, key: &[u8]) -> bool {
+    fn contains(&self, _name_idx: usize, key: &[u8]) -> bool {
+        let cf_name = "ddddd";
         self.map.read().unwrap().get(cf_name).map_or(
             false,
             |table| {
@@ -100,10 +102,11 @@ impl Snapshot for MemoryDB {
         )
     }
 
-    fn iter<'a>(&'a self, cf_name: &str, from: &[u8]) -> Iter<'a> {
+    fn iter<'a>(&'a self, _name_idx: usize, from: &[u8]) -> Iter<'a> {
         use std::collections::Bound::{Included, Unbounded};
         use std::mem::transmute;
         let guard = self.map.read().unwrap();
+        let cf_name = "ddddd";
 
         Box::new(MemoryDBIter {
             iter: unsafe {
@@ -125,6 +128,10 @@ impl Snapshot for MemoryDB {
             _guard: guard,
         })
     }
+
+    fn get_index(&self, _name: &str) -> usize {
+        0
+    }
 }
 
 impl<'a> Iterator for MemoryDBIter<'a> {
@@ -143,27 +150,32 @@ fn test_memorydb_snapshot() {
 
     {
         let mut fork = db.fork();
-        fork.put("a", vec![1, 2, 3], vec![123]);
+        let name_idx = fork.get_index(DEFAULT_TABLE);
+        fork.put(name_idx, vec![1, 2, 3], vec![123]);
         let _ = db.merge(fork.into_patch());
     }
 
     let snapshot = db.snapshot();
-    assert!(snapshot.contains("a", vec![1, 2, 3].as_slice()));
+    let name_idx = snapshot.get_index(DEFAULT_TABLE);
+    assert!(snapshot.contains(name_idx, vec![1, 2, 3].as_slice()));
 
     {
         let mut fork = db.fork();
-        fork.put("a", vec![2, 3, 4], vec![234]);
+        let name_idx = fork.get_index(DEFAULT_TABLE);
+        fork.put(name_idx, vec![2, 3, 4], vec![234]);
         let _ = db.merge(fork.into_patch());
     }
 
-    assert!(!snapshot.contains("a", vec![2, 3, 4].as_slice()));
+    assert!(!snapshot.contains(name_idx, vec![2, 3, 4].as_slice()));
 
     {
         let db_clone = Clone::clone(&db);
         let snap_clone = db_clone.snapshot();
-        assert!(snap_clone.contains("a", vec![2, 3, 4].as_slice()));
+        let name_idx = snap_clone.get_index(DEFAULT_TABLE);
+        assert!(snap_clone.contains(name_idx, vec![2, 3, 4].as_slice()));
     }
 
     let snapshot = db.snapshot();
-    assert!(snapshot.contains("a", vec![2, 3, 4].as_slice()));
+    let name_idx = snapshot.get_index(DEFAULT_TABLE);
+    assert!(snapshot.contains(name_idx, vec![2, 3, 4].as_slice()));
 }

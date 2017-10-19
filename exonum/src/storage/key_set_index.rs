@@ -41,7 +41,7 @@ pub struct KeySetIndexIter<'a, K> {
     base_iter: BaseIndexIter<'a, K, ()>,
 }
 
-impl<T, K> KeySetIndex<T, K> {
+impl<T, K> KeySetIndex<T, K> where T: AsRef<Snapshot> {
     /// Creates a new index representation based on the common prefix of its keys and storage view.
     ///
     /// Storage view can be specified as [`&Snapshot`] or [`&mut Fork`]. In the first case only

@@ -30,7 +30,7 @@ use super::{StorageKey, StorageValue, Snapshot, Fork, Iter};
 /// [`StorageValue`]: ../trait.StorageValue.html
 #[derive(Debug)]
 pub struct BaseIndex<T> {
-    name: String,
+    name_idx: usize,
     prefix: Option<Vec<u8>>,
     view: T,
 }
@@ -52,7 +52,7 @@ pub struct BaseIndexIter<'a, K, V> {
     _v: PhantomData<V>,
 }
 
-impl<T> BaseIndex<T> {
+impl<T> BaseIndex<T> where T: AsRef<Snapshot> {
     /// Creates a new index representation based on the common prefix of its keys and storage view.
     ///
     /// Storage view can be specified as [`&Snapshot`] or [`&mut Fork`]. In the first case only
@@ -62,7 +62,7 @@ impl<T> BaseIndex<T> {
     /// [`&mut Fork`]: ../struct.Fork.html
     pub fn new(name: &str, view: T) -> Self {
         BaseIndex {
-            name: name.to_string(),
+            name_idx: view.as_ref().get_index(name),
             prefix: None,
             view,
         }
@@ -71,11 +71,14 @@ impl<T> BaseIndex<T> {
     /// Creates a new index with prefix
     pub fn with_prefix(name: &str, prefix: Vec<u8>, view: T) -> Self {
         BaseIndex {
-            name: name.to_string(),
+            name_idx: view.as_ref().get_index(name),
             prefix: Some(prefix),
             view,
         }
     }
+}
+
+impl<T> BaseIndex<T> {
 
     fn prefixed_key<K: StorageKey>(&self, key: &K) -> Vec<u8> {
         match self.prefix {
@@ -92,6 +95,7 @@ impl<T> BaseIndex<T> {
             }
         }
     }
+
 }
 
 impl<T> BaseIndex<T>
@@ -106,7 +110,7 @@ where
     {
         self.view
             .as_ref()
-            .get(&self.name, &self.prefixed_key(key))
+            .get(self.name_idx, &self.prefixed_key(key))
             .map(|v| StorageValue::from_bytes(Cow::Owned(v)))
     }
 
@@ -117,7 +121,7 @@ where
         K: StorageKey,
     {
         self.view.as_ref().contains(
-            &self.name,
+            self.name_idx,
             &self.prefixed_key(key),
         )
     }
@@ -133,7 +137,7 @@ where
     {
         let iter_prefix = self.prefixed_key(subprefix);
         BaseIndexIter {
-            base_iter: self.view.as_ref().iter(&self.name, &iter_prefix),
+            base_iter: self.view.as_ref().iter(self.name_idx, &iter_prefix),
             base_prefix_len: self.prefix.as_ref().map_or(0, |p| p.len()),
             prefix: iter_prefix,
             ended: false,
@@ -155,7 +159,7 @@ where
         let iter_prefix = self.prefixed_key(subprefix);
         let iter_from = self.prefixed_key(from);
         BaseIndexIter {
-            base_iter: self.view.as_ref().iter(&self.name, &iter_from),
+            base_iter: self.view.as_ref().iter(self.name_idx, &iter_from),
             base_prefix_len: self.prefix.as_ref().map_or(0, |p| p.len()),
             prefix: iter_prefix,
             ended: false,
@@ -173,7 +177,7 @@ impl<'a> BaseIndex<&'a mut Fork> {
         V: StorageValue,
     {
         let key = self.prefixed_key(key);
-        self.view.put(&self.name, key, value.into_bytes());
+        self.view.put(self.name_idx, key, value.into_bytes());
     }
 
     /// Removes the key of *any* type from the index.
@@ -182,7 +186,7 @@ impl<'a> BaseIndex<&'a mut Fork> {
         K: StorageKey,
     {
         let key = self.prefixed_key(key);
-        self.view.remove(&self.name, key);
+        self.view.remove(self.name_idx, key);
     }
 
     /// Clears the index, removing all entries.
@@ -194,7 +198,7 @@ impl<'a> BaseIndex<&'a mut Fork> {
     /// in the index.
     pub fn clear(&mut self) {
         if let Some(ref prefix) = self.prefix {
-            self.view.remove_by_prefix(&self.name, prefix);
+            self.view.remove_by_prefix(self.name_idx, prefix);
         }
     }
 }

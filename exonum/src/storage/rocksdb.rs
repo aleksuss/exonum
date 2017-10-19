@@ -26,6 +26,8 @@ use std::path::Path;
 use std::fmt;
 use std::error;
 use std::iter::Peekable;
+use std::collections::BTreeMap;
+use std::cell::RefCell;
 
 pub use rocksdb::Options as RocksDBOptions;
 pub use rocksdb::BlockBasedOptions as RocksBlockOptions;
@@ -48,6 +50,8 @@ pub struct RocksDB {
 pub struct RocksDBSnapshot {
     snapshot: _Snapshot<'static>,
     _db: Arc<_RocksDB>,
+    mapping: RefCell<BTreeMap<String, usize>>,
+    rmapping: RefCell<BTreeMap<usize, String>>,
 }
 
 /// An iterator over the entries of a `RocksDB`.
@@ -82,13 +86,15 @@ impl Database for RocksDB {
         Box::new(RocksDBSnapshot {
             snapshot: unsafe { mem::transmute(self.db.snapshot()) },
             _db: Arc::clone(&self.db),
+            mapping: RefCell::new(BTreeMap::new()),
+            rmapping: RefCell::new(BTreeMap::new()),
         })
     }
 
     fn merge(&mut self, patch: Patch) -> Result<()> {
         let _p = ProfilerSpan::new("RocksDB::merge");
         let mut batch = WriteBatch::default();
-        for (cf_name, changes) in patch {
+        for (cf_name, idx) in patch.mapping.borrow().iter() {
             let cf = match self.db.cf_handle(&cf_name) {
                 Some(cf) => cf,
                 None => {
@@ -97,9 +103,9 @@ impl Database for RocksDB {
                         .unwrap()
                 }
             };
-            for (key, change) in changes {
+            for (key, change) in patch.changes.get(*idx).cloned().unwrap() {
                 match change {
-                    Change::Put(ref value) => batch.put_cf(cf, &key, value)?,
+                    Change::Put(ref value) => batch.put_cf(cf, key.as_ref(), value)?,
                     Change::Delete => batch.delete_cf(cf, &key)?,
                 }
             }
@@ -109,9 +115,10 @@ impl Database for RocksDB {
 }
 
 impl Snapshot for RocksDBSnapshot {
-    fn get(&self, cf_name: &str, key: &[u8]) -> Option<Vec<u8>> {
+    fn get(&self, name_idx: usize, key: &[u8]) -> Option<Vec<u8>> {
         let _p = ProfilerSpan::new("RocksDBSnapshot::get");
-        if let Some(cf) = self._db.cf_handle(cf_name) {
+        let rmapping = self.rmapping.borrow();
+        if let Some(cf) = self._db.cf_handle(rmapping.get(&name_idx)?) {
             match self.snapshot.get_cf(cf, key) {
                 Ok(value) => value.map(|v| v.to_vec()),
                 Err(e) => panic!(e),
@@ -121,10 +128,11 @@ impl Snapshot for RocksDBSnapshot {
         }
     }
 
-    fn iter<'a>(&'a self, cf_name: &str, from: &[u8]) -> Iter<'a> {
+    fn iter<'a>(&'a self, name_idx: usize, from: &[u8]) -> Iter<'a> {
         use rocksdb::{IteratorMode, Direction};
         let _p = ProfilerSpan::new("RocksDBSnapshot::iter");
-        let iter = match self._db.cf_handle(cf_name) {
+        let rmapping = self.rmapping.borrow();
+        let iter = match self._db.cf_handle(rmapping.get(&name_idx).unwrap_or(&"default".to_string())) {
             Some(cf) => {
                 self.snapshot
                     .iterator_cf(cf, IteratorMode::From(from, Direction::Forward))
@@ -138,6 +146,18 @@ impl Snapshot for RocksDBSnapshot {
             value: None,
         })
     }
+
+    fn get_index(&self, name: &str) -> usize {
+        let len =  { self.mapping.borrow().len() };
+        if let Some(idx) = self.mapping.borrow().get(name) {
+           return *idx;
+        }
+        {
+            self.mapping.borrow_mut().insert(name.to_string(), len);
+            self.rmapping.borrow_mut().insert(len, name.to_string());
+        }
+        len
+    }
 }
 
 impl<'a> Iterator for RocksDBIterator {
@@ -146,10 +166,7 @@ impl<'a> Iterator for RocksDBIterator {
         if let Some((key, value)) = self.iter.next() {
             self.key = Some(key);
             self.value = Some(value);
-            Some((
-                self.key.as_ref().unwrap(),
-                self.value.as_ref().unwrap(),
-            ))
+            Some((self.key.as_ref().unwrap(), self.value.as_ref().unwrap()))
         } else {
             None
         }
