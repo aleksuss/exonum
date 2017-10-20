@@ -180,6 +180,7 @@ mod tests {
         options.set_block_based_table_factory(&block_options);
         options.set_max_bytes_for_level_base(512 * 1024 * 1024);
         options.set_disable_auto_compactions(true);
+        options.set_report_bg_io_stats(false);
         let db = Box::new(RocksDB::open(tempdir.path(), options).unwrap());
         db as Box<Database>
     }

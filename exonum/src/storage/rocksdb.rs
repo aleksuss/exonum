@@ -26,7 +26,6 @@ use std::path::Path;
 use std::fmt;
 use std::error;
 use std::iter::Peekable;
-use std::collections::HashMap;
 use std::cell::RefCell;
 
 pub use rocksdb::Options as RocksDBOptions;
@@ -50,7 +49,7 @@ pub struct RocksDB {
 pub struct RocksDBSnapshot {
     snapshot: _Snapshot<'static>,
     _db: Arc<_RocksDB>,
-    mapping: RefCell<HashMap<usize, String>>,
+    mapping: RefCell<Vec<String>>,
 }
 
 /// An iterator over the entries of a `RocksDB`.
@@ -85,7 +84,7 @@ impl Database for RocksDB {
         Box::new(RocksDBSnapshot {
             snapshot: unsafe { mem::transmute(self.db.snapshot()) },
             _db: Arc::clone(&self.db),
-            mapping: RefCell::new(HashMap::new()),
+            mapping: RefCell::new(Vec::new()),
         })
     }
 
@@ -116,7 +115,7 @@ impl Snapshot for RocksDBSnapshot {
     fn get(&self, name_idx: usize, key: &[u8]) -> Option<Vec<u8>> {
         let _p = ProfilerSpan::new("RocksDBSnapshot::get");
         let mapping = self.mapping.borrow();
-        if let Some(cf) = self._db.cf_handle(mapping.get(&name_idx)?) {
+        if let Some(cf) = self._db.cf_handle(mapping.get(name_idx)?) {
             match self.snapshot.get_cf(cf, key) {
                 Ok(value) => value.map(|v| v.to_vec()),
                 Err(e) => panic!(e),
@@ -130,7 +129,9 @@ impl Snapshot for RocksDBSnapshot {
         use rocksdb::{IteratorMode, Direction};
         let _p = ProfilerSpan::new("RocksDBSnapshot::iter");
         let mapping = self.mapping.borrow();
-        let iter = match self._db.cf_handle(mapping.get(&name_idx).unwrap_or(&"default".to_string())) {
+        let iter = match self._db.cf_handle(mapping.get(name_idx).unwrap_or(
+            &"default".to_string(),
+        )) {
             Some(cf) => {
                 self.snapshot
                     .iterator_cf(cf, IteratorMode::From(from, Direction::Forward))
@@ -147,12 +148,14 @@ impl Snapshot for RocksDBSnapshot {
 
     fn get_index(&self, name: &str) -> usize {
         let mut mapping_borrow = self.mapping.borrow_mut();
-        let len =  mapping_borrow.len();
-        if let Some((idx, _)) = mapping_borrow.iter().find(|&(_, v)| v == name) {
-           return *idx;
+        let len = mapping_borrow.len();
+        if mapping_borrow.contains(&name.to_string()) {
+            if let Some((idx, _)) = mapping_borrow.iter().enumerate().find(|&(_, n)| n == name) {
+                return idx;
+            }
         }
         {
-            mapping_borrow.insert(len, name.to_string());
+            mapping_borrow.push(name.to_string());
         }
         len
     }

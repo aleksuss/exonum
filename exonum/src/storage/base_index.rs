@@ -52,7 +52,10 @@ pub struct BaseIndexIter<'a, K, V> {
     _v: PhantomData<V>,
 }
 
-impl<T> BaseIndex<T> where T: AsRef<Snapshot> {
+impl<T> BaseIndex<T>
+where
+    T: AsRef<Snapshot>,
+{
     /// Creates a new index representation based on the common prefix of its keys and storage view.
     ///
     /// Storage view can be specified as [`&Snapshot`] or [`&mut Fork`]. In the first case only
@@ -79,7 +82,6 @@ impl<T> BaseIndex<T> where T: AsRef<Snapshot> {
 }
 
 impl<T> BaseIndex<T> {
-
     fn prefixed_key<K: StorageKey>(&self, key: &K) -> Vec<u8> {
         match self.prefix {
             Some(ref prefix) => {
@@ -95,7 +97,6 @@ impl<T> BaseIndex<T> {
             }
         }
     }
-
 }
 
 impl<T> BaseIndex<T>

@@ -202,22 +202,6 @@ impl Patch {
             changes: Vec::new(),
         }
     }
-
-//    pub fn get_changes(&self, name_idx: usize) -> Option<&BTreeMap<Vec<u8>, Change>> {
-//        self.changes.get(name_idx)
-//    }
-//
-//    pub fn get_changes_mut(&mut self, name_idx: usize) -> &mut BTreeMap<Vec<u8>, Change> {
-//        self.changes.borrow_mut().get_mut(name_idx).unwrap()
-//    }
-//
-//    pub fn get_change(&self, name_idx: usize, key: &[u8]) -> Option<&Change> {
-//        if let Some(changes) = self.changes.get(name_idx) {
-//            changes.get(key)
-//        } else {
-//            None
-//        }
-//    }
 }
 
 impl Snapshot for Fork {
@@ -259,12 +243,13 @@ impl Snapshot for Fork {
     }
 
     fn get_index(&self, name: &str) -> usize {
-        if let Some(idx) = self.patch.mapping.borrow().get(name) {
+        let mut borrow = self.patch.mapping.borrow_mut();
+        if let Some(idx) = borrow.get(name) {
             return *idx;
         }
         let idx = self.snapshot.get_index(name);
         {
-            self.patch.mapping.borrow_mut().insert(name.to_string(), idx);
+            borrow.insert(name.to_string(), idx);
         }
         idx
     }
@@ -328,10 +313,20 @@ impl Fork {
             self.changelog.push((
                 name_idx,
                 key.clone(),
-                self.patch.changes.get_mut(name_idx).unwrap().insert(key, Change::Put(value)),
+                self.patch.changes.get_mut(name_idx).unwrap().insert(
+                    key,
+                    Change::Put(
+                        value,
+                    ),
+                ),
             ));
         } else {
-            self.patch.changes.get_mut(name_idx).unwrap().insert(key, Change::Put(value));
+            self.patch.changes.get_mut(name_idx).unwrap().insert(
+                key,
+                Change::Put(
+                    value,
+                ),
+            );
         }
     }
 
@@ -344,10 +339,16 @@ impl Fork {
             self.changelog.push((
                 name_idx,
                 key.clone(),
-                self.patch.changes.get_mut(name_idx).unwrap().insert(key, Change::Delete),
+                self.patch.changes.get_mut(name_idx).unwrap().insert(
+                    key,
+                    Change::Delete,
+                ),
             ));
         } else {
-            self.patch.changes.get_mut(name_idx).unwrap().insert(key, Change::Delete);
+            self.patch.changes.get_mut(name_idx).unwrap().insert(
+                key,
+                Change::Delete,
+            );
         }
     }
 
@@ -357,7 +358,10 @@ impl Fork {
             self.patch.changes.resize(name_idx + 1, BTreeMap::new());
         }
         // Remove changes
-        let keys = self.patch.changes.get(name_idx).unwrap()
+        let keys = self.patch
+            .changes
+            .get(name_idx)
+            .unwrap()
             .range::<[u8], _>((Included(prefix), Unbounded))
             .map(|(k, _)| k.to_vec())
             .take_while(|k| k.starts_with(prefix))
@@ -372,11 +376,12 @@ impl Fork {
                 return;
             }
 
-            let change = self.patch.changes.get_mut(name_idx).unwrap().insert(k.to_vec(), Change::Delete);
+            let change = self.patch.changes.get_mut(name_idx).unwrap().insert(
+                k.to_vec(),
+                Change::Delete,
+            );
             if self.logged {
-                self.changelog.push(
-                    (name_idx, k.to_vec(), change),
-                );
+                self.changelog.push((name_idx, k.to_vec(), change));
             }
         }
     }
