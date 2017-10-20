@@ -91,6 +91,15 @@ where
             _v: PhantomData,
         }
     }
+
+    /// With prefix
+    pub fn with_prefix(name: &str, prefix: Vec<u8>, view: T) -> Self {
+        ProofListIndex {
+            base: BaseIndex::with_prefix(name, prefix, view),
+            length: Cell::new(None),
+            _v: PhantomData,
+        }
+    }
 }
 
 fn pair_hash(h1: &Hash, h2: &Hash) -> Hash {

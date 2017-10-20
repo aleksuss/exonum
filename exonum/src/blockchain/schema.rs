@@ -12,10 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use byteorder::{ByteOrder, BigEndian};
-
-use std::mem;
-
 use crypto::Hash;
 use messages::{RawMessage, Precommit};
 use storage::{Snapshot, Fork, StorageKey, StorageValue, ListIndex, MapIndex, ProofListIndex,
@@ -25,12 +21,9 @@ use super::{Block, BlockProof, Blockchain};
 use super::config::StoredConfiguration;
 
 /// Generates prefix that combines service identifier, table identifier and given suffix.
-pub fn gen_prefix<K: StorageKey>(service_id: u16, ord: u8, suffix: &K) -> Vec<u8> {
-    let pos = mem::size_of::<u16>();
-    let mut res = vec![0; pos + 1 + suffix.size()];
-    suffix.write(&mut res[pos + 1..]);
-    BigEndian::write_u16(&mut res[0..pos], service_id);
-    res[pos] = ord;
+pub fn gen_prefix<K: StorageKey>(prefix: &K) -> Vec<u8> {
+    let mut res = vec![0; prefix.size()];
+    prefix.write(&mut res[..]);
     res
 }
 
@@ -94,13 +87,13 @@ where
 
     /// Returns table that keeps a list of transactions for the each block.
     pub fn block_txs(&self, height: Height) -> ProofListIndex<&T, Hash> {
-        let _height: u64 = height.into();
-        ProofListIndex::new("block_txs", &self.view)
+        let height: u64 = height.into();
+        ProofListIndex::with_prefix("block_txs", gen_prefix(&height), &self.view)
     }
 
     /// Returns table that saves a list of precommits for block with given hash.
-    pub fn precommits(&self, _hash: &Hash) -> ListIndex<&T, Precommit> {
-        ListIndex::new("precommits", &self.view)
+    pub fn precommits(&self, hash: &Hash) -> ListIndex<&T, Precommit> {
+        ListIndex::with_prefix("precommits", gen_prefix(hash), &self.view)
     }
 
     /// Returns table that represents a map from configuration hash into contents.
@@ -330,15 +323,15 @@ impl<'a> Schema<&'a mut Fork> {
     ///
     /// [1]: struct.Schema.html#method.block_txs
     pub fn block_txs_mut(&mut self, height: Height) -> ProofListIndex<&mut Fork, Hash> {
-        let _height: u64 = height.into();
-        ProofListIndex::new("block_txs", &mut self.view)
+        let height: u64 = height.into();
+        ProofListIndex::with_prefix("block_txs", gen_prefix(&height), &mut self.view)
     }
 
     /// Mutable reference to the [`precommits`][1] index.
     ///
     /// [1]: struct.Schema.html#method.precommits
-    pub fn precommits_mut(&mut self, _hash: &Hash) -> ListIndex<&mut Fork, Precommit> {
-        ListIndex::new("precommits", &mut self.view)
+    pub fn precommits_mut(&mut self, hash: &Hash) -> ListIndex<&mut Fork, Precommit> {
+        ListIndex::with_prefix("precommits", gen_prefix(hash), &mut self.view)
     }
 
     /// Mutable reference to the [`configs`][1] index.

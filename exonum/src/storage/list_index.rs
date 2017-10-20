@@ -73,6 +73,15 @@ where
             _v: PhantomData,
         }
     }
+
+    /// TODO
+    pub fn with_prefix(name: &str, prefix: Vec<u8>, view: T) -> Self {
+        ListIndex {
+            base: BaseIndex::with_prefix(name, prefix, view),
+            length: Cell::new(None),
+            _v: PhantomData,
+        }
+    }
 }
 
 impl<T, V> ListIndex<T, V>
