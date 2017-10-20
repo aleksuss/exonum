@@ -26,7 +26,7 @@ use std::path::Path;
 use std::fmt;
 use std::error;
 use std::iter::Peekable;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::cell::RefCell;
 
 pub use rocksdb::Options as RocksDBOptions;
@@ -50,8 +50,7 @@ pub struct RocksDB {
 pub struct RocksDBSnapshot {
     snapshot: _Snapshot<'static>,
     _db: Arc<_RocksDB>,
-    mapping: RefCell<BTreeMap<String, usize>>,
-    rmapping: RefCell<BTreeMap<usize, String>>,
+    mapping: RefCell<HashMap<usize, String>>,
 }
 
 /// An iterator over the entries of a `RocksDB`.
@@ -86,8 +85,7 @@ impl Database for RocksDB {
         Box::new(RocksDBSnapshot {
             snapshot: unsafe { mem::transmute(self.db.snapshot()) },
             _db: Arc::clone(&self.db),
-            mapping: RefCell::new(BTreeMap::new()),
-            rmapping: RefCell::new(BTreeMap::new()),
+            mapping: RefCell::new(HashMap::new()),
         })
     }
 
@@ -117,8 +115,8 @@ impl Database for RocksDB {
 impl Snapshot for RocksDBSnapshot {
     fn get(&self, name_idx: usize, key: &[u8]) -> Option<Vec<u8>> {
         let _p = ProfilerSpan::new("RocksDBSnapshot::get");
-        let rmapping = self.rmapping.borrow();
-        if let Some(cf) = self._db.cf_handle(rmapping.get(&name_idx)?) {
+        let mapping = self.mapping.borrow();
+        if let Some(cf) = self._db.cf_handle(mapping.get(&name_idx)?) {
             match self.snapshot.get_cf(cf, key) {
                 Ok(value) => value.map(|v| v.to_vec()),
                 Err(e) => panic!(e),
@@ -131,8 +129,8 @@ impl Snapshot for RocksDBSnapshot {
     fn iter<'a>(&'a self, name_idx: usize, from: &[u8]) -> Iter<'a> {
         use rocksdb::{IteratorMode, Direction};
         let _p = ProfilerSpan::new("RocksDBSnapshot::iter");
-        let rmapping = self.rmapping.borrow();
-        let iter = match self._db.cf_handle(rmapping.get(&name_idx).unwrap_or(&"default".to_string())) {
+        let mapping = self.mapping.borrow();
+        let iter = match self._db.cf_handle(mapping.get(&name_idx).unwrap_or(&"default".to_string())) {
             Some(cf) => {
                 self.snapshot
                     .iterator_cf(cf, IteratorMode::From(from, Direction::Forward))
@@ -148,13 +146,13 @@ impl Snapshot for RocksDBSnapshot {
     }
 
     fn get_index(&self, name: &str) -> usize {
-        let len =  { self.mapping.borrow().len() };
-        if let Some(idx) = self.mapping.borrow().get(name) {
+        let mut mapping_borrow = self.mapping.borrow_mut();
+        let len =  mapping_borrow.len();
+        if let Some((idx, _)) = mapping_borrow.iter().find(|&(_, v)| v == name) {
            return *idx;
         }
         {
-            self.mapping.borrow_mut().insert(name.to_string(), len);
-            self.rmapping.borrow_mut().insert(len, name.to_string());
+            mapping_borrow.insert(len, name.to_string());
         }
         len
     }

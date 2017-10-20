@@ -320,10 +320,8 @@ impl Fork {
 
     /// Inserts the key-value pair into the fork.
     pub fn put(&mut self, name_idx: usize, key: Vec<u8>, value: Vec<u8>) {
-        let actual_len = self.patch.mapping.borrow().len();
-
-        if actual_len > self.patch.changes.len() {
-            self.patch.changes.resize(actual_len, BTreeMap::new());
+        if name_idx >= self.patch.changes.len() {
+            self.patch.changes.resize(name_idx + 1, BTreeMap::new());
         }
 
         if self.logged {
@@ -339,10 +337,8 @@ impl Fork {
 
     /// Removes the key from the fork.
     pub fn remove(&mut self, name_idx: usize, key: Vec<u8>) {
-        let actual_len = self.patch.mapping.borrow().len();
-
-        if actual_len > self.patch.changes.len() {
-            self.patch.changes.resize(actual_len, BTreeMap::new());
+        if name_idx >= self.patch.changes.len() {
+            self.patch.changes.resize(name_idx + 1, BTreeMap::new());
         }
         if self.logged {
             self.changelog.push((
@@ -357,10 +353,8 @@ impl Fork {
 
     /// Removes all keys starting with the specified prefix from the fork.
     pub fn remove_by_prefix(&mut self, name_idx: usize, prefix: &[u8]) {
-        let actual_len = self.patch.mapping.borrow().len();
-
-        if actual_len > self.patch.changes.len() {
-            self.patch.changes.resize(actual_len, BTreeMap::new());
+        if name_idx >= self.patch.changes.len() {
+            self.patch.changes.resize(name_idx + 1, BTreeMap::new());
         }
         // Remove changes
         let keys = self.patch.changes.get(name_idx).unwrap()

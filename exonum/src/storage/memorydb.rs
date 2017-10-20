@@ -24,13 +24,14 @@ use super::{Database, Snapshot, Patch, Change, Iterator, Iter, Result};
 const DEFAULT_TABLE: &'static str = "default";
 
 type DB = Arc<RwLock<HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>>>>;
-
+type Mapping = Arc<RwLock<HashMap<usize, String>>>;
 /// Database implementation that stores all the data in memory.
 ///
 /// It's mainly used for testing and not designed to be efficient.
 #[derive(Default, Clone, Debug)]
 pub struct MemoryDB {
     map: DB,
+    mapping: Mapping,
 }
 
 /// An iterator over the entries of a `MemoryDB`.
@@ -47,7 +48,10 @@ impl MemoryDB {
             tables.insert(DEFAULT_TABLE.to_string(), BTreeMap::new()),
             None
         );
-        MemoryDB { map: Arc::new(RwLock::new(tables)) }
+        MemoryDB {
+            map: Arc::new(RwLock::new(tables)),
+            mapping: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 }
 
@@ -59,6 +63,7 @@ impl Database for MemoryDB {
     fn snapshot(&self) -> Box<Snapshot> {
         Box::new(MemoryDB {
             map: Arc::new(RwLock::new(self.map.read().unwrap().clone())),
+            mapping: self.mapping.clone(),
         })
     }
 
@@ -85,39 +90,47 @@ impl Database for MemoryDB {
 }
 
 impl Snapshot for MemoryDB {
-    fn get(&self, _name_idx: usize, key: &[u8]) -> Option<Vec<u8>> {
-        let cf_name = "ddddd";
-        self.map.read().unwrap().get(cf_name).and_then(|table| {
-            table.get(key).cloned()
-        })
+    fn get(&self, name_idx: usize, key: &[u8]) -> Option<Vec<u8>> {
+        if let Some(cf_name) = self.mapping.read().unwrap().get(&name_idx) {
+            self.map.read().unwrap().get(cf_name).and_then(|table| {
+                table.get(key).cloned()
+            })
+        } else {
+            None
+        }
     }
 
-    fn contains(&self, _name_idx: usize, key: &[u8]) -> bool {
-        let cf_name = "ddddd";
-        self.map.read().unwrap().get(cf_name).map_or(
-            false,
-            |table| {
-                table.contains_key(key)
-            },
-        )
+    fn contains(&self, name_idx: usize, key: &[u8]) -> bool {
+        if let Some(cf_name) = self.mapping.read().unwrap().get(&name_idx) {
+            self.map.read().unwrap().get(cf_name).map_or(
+                false,
+                |table| {
+                    table.contains_key(key)
+                },
+            )
+        } else {
+            false
+        }
     }
 
-    fn iter<'a>(&'a self, _name_idx: usize, from: &[u8]) -> Iter<'a> {
+    fn iter<'a>(&'a self, name_idx: usize, from: &[u8]) -> Iter<'a> {
         use std::collections::Bound::{Included, Unbounded};
         use std::mem::transmute;
-        let guard = self.map.read().unwrap();
-        let cf_name = "ddddd";
+        let map_guard = self.map.read().unwrap();
+        let mapping_guard = self.mapping.read().unwrap();
+        let default_map = DEFAULT_TABLE.to_string();
+        let cf_name = mapping_guard.get(&name_idx).unwrap_or(&default_map);
 
         Box::new(MemoryDBIter {
             iter: unsafe {
-                transmute(match guard.get(cf_name) {
+                transmute(match map_guard.get(cf_name) {
                     Some(table) => {
                         table
                             .range::<[u8], _>((Included(from), Unbounded))
                             .peekable()
                     }
                     None => {
-                        guard
+                        map_guard
                             .get(DEFAULT_TABLE)
                             .unwrap()
                             .range::<[u8], _>((Unbounded, Unbounded))
@@ -125,12 +138,20 @@ impl Snapshot for MemoryDB {
                     }
                 })
             },
-            _guard: guard,
+            _guard: map_guard,
         })
     }
 
-    fn get_index(&self, _name: &str) -> usize {
-        0
+    fn get_index(&self, name: &str) -> usize {
+        let len = {
+            let guard = self.mapping.read().unwrap();
+            if let Some((idx, _)) = guard.iter().find(|&(_, v)| v == name) {
+                return *idx;
+            }
+            guard.len()
+        };
+        self.mapping.write().unwrap().insert(len, name.to_string());
+        len
     }
 }
 
