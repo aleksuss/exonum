@@ -18,23 +18,23 @@ const TABLE_NAME: &'static str = "table";
 
 fn fork_iter<T: Database>(mut db: T) {
     let mut fork = db.fork();
-    let name_idx = fork.get_index(TABLE_NAME);
-    fork.put(name_idx, vec![10], vec![10]);
-    fork.put(name_idx, vec![20], vec![20]);
-    fork.put(name_idx, vec![30], vec![30]);
+    
+    fork.put(TABLE_NAME, vec![10], vec![10]);
+    fork.put(TABLE_NAME, vec![20], vec![20]);
+    fork.put(TABLE_NAME, vec![30], vec![30]);
 
-    assert!(fork.contains(name_idx, &[10]));
+    assert!(fork.contains(TABLE_NAME, &[10]));
 
     db.merge(fork.into_patch()).unwrap();
 
     let mut fork = db.fork();
-    let name_idx = fork.get_index(TABLE_NAME);
-    assert!(fork.contains(name_idx, &[10]));
+    
+    assert!(fork.contains(TABLE_NAME, &[10]));
 
     fn assert_iter(fork: &Fork, from: u8, assumed: &[(u8, u8)]) {
         let mut values = Vec::new();
-        let name_idx = fork.get_index(TABLE_NAME);
-        let mut iter = fork.iter(name_idx, &[from]);
+        
+        let mut iter = fork.iter(TABLE_NAME, &[from]);
         while let Some((k, v)) = iter.next() {
             values.push((k[0], v[0]));
         }
@@ -49,11 +49,11 @@ fn fork_iter<T: Database>(mut db: T) {
     assert_iter(&fork, 31, &[]);
 
     // Inserted
-    fork.put(name_idx, vec![5], vec![5]);
+    fork.put(TABLE_NAME, vec![5], vec![5]);
     assert_iter(&fork, 0, &[(5, 5), (10, 10), (20, 20), (30, 30)]);
-    fork.put(name_idx, vec![25], vec![25]);
+    fork.put(TABLE_NAME, vec![25], vec![25]);
     assert_iter(&fork, 0, &[(5, 5), (10, 10), (20, 20), (25, 25), (30, 30)]);
-    fork.put(name_idx, vec![35], vec![35]);
+    fork.put(TABLE_NAME, vec![35], vec![35]);
     assert_iter(
         &fork,
         0,
@@ -61,13 +61,13 @@ fn fork_iter<T: Database>(mut db: T) {
     );
 
     // Double inserted
-    fork.put(name_idx, vec![25], vec![23]);
+    fork.put(TABLE_NAME, vec![25], vec![23]);
     assert_iter(
         &fork,
         0,
         &[(5, 5), (10, 10), (20, 20), (25, 23), (30, 30), (35, 35)],
     );
-    fork.put(name_idx, vec![26], vec![26]);
+    fork.put(TABLE_NAME, vec![26], vec![26]);
     assert_iter(
         &fork,
         0,
@@ -76,100 +76,100 @@ fn fork_iter<T: Database>(mut db: T) {
 
     // Replaced
     let mut fork = db.fork();
-    let name_idx = fork.get_index(TABLE_NAME);
-    fork.put(name_idx, vec![10], vec![11]);
+    
+    fork.put(TABLE_NAME, vec![10], vec![11]);
     assert_iter(&fork, 0, &[(10, 11), (20, 20), (30, 30)]);
-    fork.put(name_idx, vec![30], vec![31]);
+    fork.put(TABLE_NAME, vec![30], vec![31]);
     assert_iter(&fork, 0, &[(10, 11), (20, 20), (30, 31)]);
 
     // Deleted
     let mut fork = db.fork();
-    let name_idx = fork.get_index(TABLE_NAME);
-    fork.remove(name_idx, vec![20]);
+    
+    fork.remove(TABLE_NAME, vec![20]);
     assert_iter(&fork, 0, &[(10, 10), (30, 30)]);
-    fork.remove(name_idx, vec![10]);
+    fork.remove(TABLE_NAME, vec![10]);
     assert_iter(&fork, 0, &[(30, 30)]);
-    fork.put(name_idx, vec![10], vec![11]);
+    fork.put(TABLE_NAME, vec![10], vec![11]);
     assert_iter(&fork, 0, &[(10, 11), (30, 30)]);
-    fork.remove(name_idx, vec![10]);
+    fork.remove(TABLE_NAME, vec![10]);
     assert_iter(&fork, 0, &[(30, 30)]);
 
     // MissDeleted
     let mut fork = db.fork();
-    let name_idx = fork.get_index(TABLE_NAME);
-    fork.remove(name_idx, vec![5]);
+    
+    fork.remove(TABLE_NAME, vec![5]);
     assert_iter(&fork, 0, &[(10, 10), (20, 20), (30, 30)]);
-    fork.remove(name_idx, vec![15]);
+    fork.remove(TABLE_NAME, vec![15]);
     assert_iter(&fork, 0, &[(10, 10), (20, 20), (30, 30)]);
-    fork.remove(name_idx, vec![35]);
+    fork.remove(TABLE_NAME, vec![35]);
     assert_iter(&fork, 0, &[(10, 10), (20, 20), (30, 30)]);
 }
 
 fn changelog<T: Database>(db: T) {
     let mut fork = db.fork();
-    let name_idx = fork.get_index(TABLE_NAME);
+    
 
-    fork.put(name_idx, vec![1], vec![1]);
-    fork.put(name_idx, vec![2], vec![2]);
-    fork.put(name_idx, vec![3], vec![3]);
+    fork.put(TABLE_NAME, vec![1], vec![1]);
+    fork.put(TABLE_NAME, vec![2], vec![2]);
+    fork.put(TABLE_NAME, vec![3], vec![3]);
 
-    assert_eq!(fork.get(name_idx, &[1]), Some(vec![1]));
-    assert_eq!(fork.get(name_idx, &[2]), Some(vec![2]));
-    assert_eq!(fork.get(name_idx, &[3]), Some(vec![3]));
-
-    fork.checkpoint();
-
-    assert_eq!(fork.get(name_idx, &[1]), Some(vec![1]));
-    assert_eq!(fork.get(name_idx, &[2]), Some(vec![2]));
-    assert_eq!(fork.get(name_idx, &[3]), Some(vec![3]));
-
-    fork.put(name_idx, vec![1], vec![10]);
-    fork.put(name_idx, vec![4], vec![40]);
-    fork.remove(name_idx, vec![2]);
-
-    assert_eq!(fork.get(name_idx, &[1]), Some(vec![10]));
-    assert_eq!(fork.get(name_idx, &[2]), None);
-    assert_eq!(fork.get(name_idx, &[3]), Some(vec![3]));
-    assert_eq!(fork.get(name_idx, &[4]), Some(vec![40]));
-
-    fork.rollback();
-
-    assert_eq!(fork.get(name_idx, &[1]), Some(vec![1]));
-    assert_eq!(fork.get(name_idx, &[2]), Some(vec![2]));
-    assert_eq!(fork.get(name_idx, &[3]), Some(vec![3]));
-    assert_eq!(fork.get(name_idx, &[4]), None);
+    assert_eq!(fork.get(TABLE_NAME, &[1]), Some(vec![1]));
+    assert_eq!(fork.get(TABLE_NAME, &[2]), Some(vec![2]));
+    assert_eq!(fork.get(TABLE_NAME, &[3]), Some(vec![3]));
 
     fork.checkpoint();
 
-    fork.put(name_idx, vec![4], vec![40]);
-    fork.put(name_idx, vec![4], vec![41]);
-    fork.remove(name_idx, vec![2]);
-    fork.put(name_idx, vec![2], vec![20]);
+    assert_eq!(fork.get(TABLE_NAME, &[1]), Some(vec![1]));
+    assert_eq!(fork.get(TABLE_NAME, &[2]), Some(vec![2]));
+    assert_eq!(fork.get(TABLE_NAME, &[3]), Some(vec![3]));
 
-    assert_eq!(fork.get(name_idx, &[1]), Some(vec![1]));
-    assert_eq!(fork.get(name_idx, &[2]), Some(vec![20]));
-    assert_eq!(fork.get(name_idx, &[3]), Some(vec![3]));
-    assert_eq!(fork.get(name_idx, &[4]), Some(vec![41]));
+    fork.put(TABLE_NAME, vec![1], vec![10]);
+    fork.put(TABLE_NAME, vec![4], vec![40]);
+    fork.remove(TABLE_NAME, vec![2]);
+
+    assert_eq!(fork.get(TABLE_NAME, &[1]), Some(vec![10]));
+    assert_eq!(fork.get(TABLE_NAME, &[2]), None);
+    assert_eq!(fork.get(TABLE_NAME, &[3]), Some(vec![3]));
+    assert_eq!(fork.get(TABLE_NAME, &[4]), Some(vec![40]));
 
     fork.rollback();
 
-    assert_eq!(fork.get(name_idx, &[1]), Some(vec![1]));
-    assert_eq!(fork.get(name_idx, &[2]), Some(vec![2]));
-    assert_eq!(fork.get(name_idx, &[3]), Some(vec![3]));
-    assert_eq!(fork.get(name_idx, &[4]), None);
-
-    fork.put(name_idx, vec![2], vec![20]);
+    assert_eq!(fork.get(TABLE_NAME, &[1]), Some(vec![1]));
+    assert_eq!(fork.get(TABLE_NAME, &[2]), Some(vec![2]));
+    assert_eq!(fork.get(TABLE_NAME, &[3]), Some(vec![3]));
+    assert_eq!(fork.get(TABLE_NAME, &[4]), None);
 
     fork.checkpoint();
 
-    fork.put(name_idx, vec![3], vec![30]);
+    fork.put(TABLE_NAME, vec![4], vec![40]);
+    fork.put(TABLE_NAME, vec![4], vec![41]);
+    fork.remove(TABLE_NAME, vec![2]);
+    fork.put(TABLE_NAME, vec![2], vec![20]);
+
+    assert_eq!(fork.get(TABLE_NAME, &[1]), Some(vec![1]));
+    assert_eq!(fork.get(TABLE_NAME, &[2]), Some(vec![20]));
+    assert_eq!(fork.get(TABLE_NAME, &[3]), Some(vec![3]));
+    assert_eq!(fork.get(TABLE_NAME, &[4]), Some(vec![41]));
 
     fork.rollback();
 
-    assert_eq!(fork.get(name_idx, &[1]), Some(vec![1]));
-    assert_eq!(fork.get(name_idx, &[2]), Some(vec![20]));
-    assert_eq!(fork.get(name_idx, &[3]), Some(vec![3]));
-    assert_eq!(fork.get(name_idx, &[4]), None);
+    assert_eq!(fork.get(TABLE_NAME, &[1]), Some(vec![1]));
+    assert_eq!(fork.get(TABLE_NAME, &[2]), Some(vec![2]));
+    assert_eq!(fork.get(TABLE_NAME, &[3]), Some(vec![3]));
+    assert_eq!(fork.get(TABLE_NAME, &[4]), None);
+
+    fork.put(TABLE_NAME, vec![2], vec![20]);
+
+    fork.checkpoint();
+
+    fork.put(TABLE_NAME, vec![3], vec![30]);
+
+    fork.rollback();
+
+    assert_eq!(fork.get(TABLE_NAME, &[1]), Some(vec![1]));
+    assert_eq!(fork.get(TABLE_NAME, &[2]), Some(vec![20]));
+    assert_eq!(fork.get(TABLE_NAME, &[3]), Some(vec![3]));
+    assert_eq!(fork.get(TABLE_NAME, &[4]), None);
 }
 
 

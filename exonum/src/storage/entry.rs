@@ -29,10 +29,7 @@ pub struct Entry<T, V> {
     _v: PhantomData<V>,
 }
 
-impl<T, V> Entry<T, V>
-where
-    T: AsRef<Snapshot>,
-{
+impl<T, V> Entry<T, V> {
     /// Creates a new index representation based on the prefix and storage view.
     ///
     /// Storage view can be specified as [`&Snapshot`] or [`&mut Fork`]. In the first case only

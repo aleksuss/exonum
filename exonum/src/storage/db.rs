@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::btree_map::{BTreeMap, Range};
 use std::collections::Bound::*;
@@ -24,13 +23,7 @@ use super::Result;
 use self::NextIterValue::*;
 
 /// A set of serial changes that should be applied to a storage atomically.
-#[derive(Debug, Clone)]
-pub struct Patch {
-    /// Mappings
-    pub mapping: RefCell<HashMap<String, usize>>,
-    /// Changes
-    pub changes: Vec<BTreeMap<Vec<u8>, Change>>,
-}
+pub type Patch = HashMap<String, BTreeMap<Vec<u8>, Change>>;
 
 /// A generalized iterator over the storage views.
 pub type Iter<'a> = Box<Iterator + 'a>;
@@ -80,7 +73,7 @@ pub enum Change {
 pub struct Fork {
     snapshot: Box<Snapshot>,
     patch: Patch,
-    changelog: Vec<(usize, Vec<u8>, Option<Change>)>,
+    changelog: Vec<(String, Vec<u8>, Option<Change>)>,
     logged: bool,
 }
 
@@ -167,22 +160,19 @@ pub trait Database: Send + Sync + 'static {
 pub trait Snapshot: 'static {
     /// Returns a value as raw vector of bytes corresponding to the specified key
     /// or `None` if does not exist.
-    fn get(&self, name_idx: usize, key: &[u8]) -> Option<Vec<u8>>;
+    fn get(&self, name: &str, key: &[u8]) -> Option<Vec<u8>>;
 
     /// Returns `true` if the snapshot contains a value for the specified key.
     ///
     /// Default implementation tries to read the value using method [`get`].
     /// [`get`]: #tymethod.get
-    fn contains(&self, name_idx: usize, key: &[u8]) -> bool {
-        self.get(name_idx, key).is_some()
+    fn contains(&self, name: &str, key: &[u8]) -> bool {
+        self.get(name, key).is_some()
     }
 
     /// Returns an iterator over the entries of the snapshot in ascending order starting from
     /// the specified key. The iterator element type is `(&[u8], &[u8])`.
-    fn iter<'a>(&'a self, name_idx: usize, from: &[u8]) -> Iter<'a>;
-
-    /// Getting index by name
-    fn get_index(&self, name: &str) -> usize;
+    fn iter<'a>(&'a self, name: &str, from: &[u8]) -> Iter<'a>;
 }
 
 /// A trait that defines streaming iterator over storage view entries.
@@ -194,19 +184,9 @@ pub trait Iterator {
     fn peek(&mut self) -> Option<(&[u8], &[u8])>;
 }
 
-impl Patch {
-    /// Creates a new `Patch`
-    pub fn new() -> Self {
-        Patch {
-            mapping: RefCell::new(HashMap::new()),
-            changes: Vec::new(),
-        }
-    }
-}
-
 impl Snapshot for Fork {
-    fn get(&self, name_idx: usize, key: &[u8]) -> Option<Vec<u8>> {
-        if let Some(changes) = self.patch.changes.get(name_idx) {
+    fn get(&self, name: &str, key: &[u8]) -> Option<Vec<u8>> {
+        if let Some(changes) = self.patch.get(name) {
             if let Some(change) = changes.get(key) {
                 match *change {
                     Change::Put(ref v) => return Some(v.clone()),
@@ -214,11 +194,11 @@ impl Snapshot for Fork {
                 }
             }
         }
-        self.snapshot.get(name_idx, key)
+        self.snapshot.get(name, key)
     }
 
-    fn contains(&self, name_idx: usize, key: &[u8]) -> bool {
-        if let Some(changes) = self.patch.changes.get(name_idx) {
+    fn contains(&self, name: &str, key: &[u8]) -> bool {
+        if let Some(changes) = self.patch.get(name) {
             if let Some(change) = changes.get(key) {
                 match *change {
                     Change::Put(..) => return true,
@@ -226,32 +206,20 @@ impl Snapshot for Fork {
                 }
             }
         }
-        self.snapshot.contains(name_idx, key)
+        self.snapshot.contains(name, key)
     }
 
-    fn iter<'a>(&'a self, name_idx: usize, from: &[u8]) -> Iter<'a> {
+    fn iter<'a>(&'a self, name: &str, from: &[u8]) -> Iter<'a> {
         let range = (Included(from), Unbounded);
-        let changes = match self.patch.changes.get(name_idx) {
+        let changes = match self.patch.get(name) {
             Some(changes) => Some(changes.range::<[u8], _>(range).peekable()),
             None => None,
         };
 
         Box::new(ForkIter {
-            snapshot: self.snapshot.iter(name_idx, from),
+            snapshot: self.snapshot.iter(name, from),
             changes,
         })
-    }
-
-    fn get_index(&self, name: &str) -> usize {
-        let mut borrow = self.patch.mapping.borrow_mut();
-        if let Some(idx) = borrow.get(name) {
-            return *idx;
-        }
-        let idx = self.snapshot.get_index(name);
-        {
-            borrow.insert(name.to_string(), idx);
-        }
-        idx
     }
 }
 
@@ -292,8 +260,8 @@ impl Fork {
         if !self.logged {
             panic!("call rollback before checkpoint");
         }
-        for (name_idx, k, c) in self.changelog.drain(..).rev() {
-            if let Some(changes) = self.patch.changes.get_mut(name_idx) {
+        for (name, k, c) in self.changelog.drain(..).rev() {
+            if let Some(changes) = self.patch.get_mut(&name) {
                 match c {
                     Some(change) => changes.insert(k, change),
                     None => changes.remove(&k),
@@ -304,16 +272,18 @@ impl Fork {
     }
 
     /// Inserts the key-value pair into the fork.
-    pub fn put(&mut self, name_idx: usize, key: Vec<u8>, value: Vec<u8>) {
-        if name_idx >= self.patch.changes.len() {
-            self.patch.changes.resize(name_idx + 1, BTreeMap::new());
+    pub fn put(&mut self, name: &str, key: Vec<u8>, value: Vec<u8>) {
+        if !self.patch.contains_key(name) {
+            self.patch.insert(name.to_string(), BTreeMap::new());
         }
+
+        let changes = self.patch.get_mut(name).unwrap();
 
         if self.logged {
             self.changelog.push((
-                name_idx,
+                name.to_string(),
                 key.clone(),
-                self.patch.changes.get_mut(name_idx).unwrap().insert(
+                changes.insert(
                     key,
                     Change::Put(
                         value,
@@ -321,7 +291,7 @@ impl Fork {
                 ),
             ));
         } else {
-            self.patch.changes.get_mut(name_idx).unwrap().insert(
+            changes.insert(
                 key,
                 Change::Put(
                     value,
@@ -331,21 +301,23 @@ impl Fork {
     }
 
     /// Removes the key from the fork.
-    pub fn remove(&mut self, name_idx: usize, key: Vec<u8>) {
-        if name_idx >= self.patch.changes.len() {
-            self.patch.changes.resize(name_idx + 1, BTreeMap::new());
+    pub fn remove(&mut self, name: &str, key: Vec<u8>) {
+        if !self.patch.contains_key(name) {
+            self.patch.insert(name.to_string(), BTreeMap::new());
         }
+
+        let changes = self.patch.get_mut(name).unwrap();
         if self.logged {
             self.changelog.push((
-                name_idx,
+                name.to_string(),
                 key.clone(),
-                self.patch.changes.get_mut(name_idx).unwrap().insert(
+                changes.insert(
                     key,
                     Change::Delete,
                 ),
             ));
         } else {
-            self.patch.changes.get_mut(name_idx).unwrap().insert(
+            changes.insert(
                 key,
                 Change::Delete,
             );
@@ -353,35 +325,33 @@ impl Fork {
     }
 
     /// Removes all keys starting with the specified prefix from the fork.
-    pub fn remove_by_prefix(&mut self, name_idx: usize, prefix: &[u8]) {
-        if name_idx >= self.patch.changes.len() {
-            self.patch.changes.resize(name_idx + 1, BTreeMap::new());
+    pub fn remove_by_prefix(&mut self, name: &str, prefix: &[u8]) {
+        if !self.patch.contains_key(name) {
+            self.patch.insert(name.to_string(), BTreeMap::new());
         }
+
+        let changes = self.patch.get_mut(name).unwrap();
         // Remove changes
-        let keys = self.patch
-            .changes
-            .get(name_idx)
-            .unwrap()
-            .range::<[u8], _>((Included(prefix), Unbounded))
+        let keys = changes.range::<[u8], _>((Included(prefix), Unbounded))
             .map(|(k, _)| k.to_vec())
             .take_while(|k| k.starts_with(prefix))
             .collect::<Vec<_>>();
         for k in keys {
-            self.patch.changes.get_mut(name_idx).unwrap().remove(&k);
+            changes.remove(&k);
         }
         // Remove from storage
-        let mut iter = self.snapshot.iter(name_idx, prefix);
+        let mut iter = self.snapshot.iter(name, prefix);
         while let Some((k, ..)) = iter.next() {
             if !k.starts_with(prefix) {
                 return;
             }
 
-            let change = self.patch.changes.get_mut(name_idx).unwrap().insert(
+            let change = changes.insert(
                 k.to_vec(),
                 Change::Delete,
             );
             if self.logged {
-                self.changelog.push((name_idx, k.to_vec(), change));
+                self.changelog.push((name.to_string(), k.to_vec(), change));
             }
         }
     }
@@ -404,16 +374,13 @@ impl Fork {
             panic!("call merge before commit or rollback");
         }
 
-        for (name, idx) in patch.mapping.borrow().iter() {
-            if let Some(changes) = patch.changes.get(*idx).cloned() {
-                let mut mapping = self.patch.mapping.borrow_mut();
-                let new_idx = mapping.len();
-                if let Some(idx) = mapping.get(name) {
-                    self.patch.changes.get_mut(*idx).unwrap().extend(changes);
-                } else {
-                    self.patch.changes.push(changes);
-                }
-                mapping.insert(name.to_string(), new_idx);
+        for (name, changes) in patch {
+            if let Some(in_changes) = self.patch.get_mut(&name) {
+                in_changes.extend(changes);
+                continue;
+            }
+            {
+                self.patch.insert(name, changes);
             }
         }
     }
