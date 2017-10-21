@@ -88,7 +88,7 @@ impl Database for RocksDB {
     fn merge(&mut self, patch: Patch) -> Result<()> {
         let _p = ProfilerSpan::new("RocksDB::merge");
         let mut batch = WriteBatch::default();
-        for (cf_name, changes) in patch {
+        for ((cf_name, key), change) in patch {
             let cf = match self.db.cf_handle(&cf_name) {
                 Some(cf) => cf,
                 None => {
@@ -97,11 +97,9 @@ impl Database for RocksDB {
                         .unwrap()
                 }
             };
-            for (key, change) in changes {
-                match change {
-                    Change::Put(ref value) => batch.put_cf(cf, key.as_ref(), value)?,
-                    Change::Delete => batch.delete_cf(cf, &key)?,
-                }
+            match change {
+                Change::Put(ref value) => batch.put_cf(cf, key.as_ref(), value)?,
+                Change::Delete => batch.delete_cf(cf, &key)?,
             }
         }
         self.db.write(batch).map_err(Into::into)
