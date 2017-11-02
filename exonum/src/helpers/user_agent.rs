@@ -1,7 +1,5 @@
 //! Information about current node including Exonum, Rust and OS versions.
 
-use os_info;
-
 static USER_AGENT: &str = include_str!(concat!(env!("OUT_DIR"), "/user_agent"));
 
 /// Returns "user agent" string containing information about Exonum, Rust and OS versions.
@@ -15,8 +13,8 @@ static USER_AGENT: &str = include_str!(concat!(env!("OUT_DIR"), "/user_agent"));
 /// println!("{}", user_agent);
 /// ```
 pub fn get() -> String {
-    let os = os_info::get();
-    format!("{}/{}", USER_AGENT, os)
+    // TODO Add a functionality to find out an user agent from host
+    format!("{}/{}", USER_AGENT, "unknown".to_string())
 }
 
 #[cfg(test)]
