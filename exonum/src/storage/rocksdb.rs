@@ -18,7 +18,7 @@
 
 pub use rocksdb::{BlockBasedOptions as RocksBlockOptions, WriteOptions as RocksDBWriteOptions};
 
-use rocksdb::{self, utils::get_cf_names, DBIterator, Options as RocksDbOptions, WriteBatch};
+use rocksdb::{self, get_cf_names, DBIterator, Options as RocksDbOptions, WriteBatch};
 
 use std::{error::Error, fmt, iter::Peekable, mem, path::Path, sync::Arc};
 

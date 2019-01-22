@@ -44,10 +44,10 @@ failure = "0.1.2"
 os_info = "1.0.1"
 chrono = { version = "=0.4.4", features = ["serde"] }
 uuid = { version = "=0.6.5", features = ["serde"] }
-snow = "=0.4.0"
+snow = "=0.4.2"
 rust_decimal = "=0.9.1"
+rocksdb = { git = "https://github.com/aleksuss/rust-rocksdb", branch = "get-cf-names" }
 
-exonum_rocksdb = "0.7.4"
 exonum_sodiumoxide = { version = "0.0.20", optional = true }
 
 [dev-dependencies]
