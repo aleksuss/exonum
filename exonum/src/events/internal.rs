@@ -18,8 +18,8 @@ use futures::{
     Future, Sink, Stream,
 };
 
-use std::time::{Duration, SystemTime};
-use tokio::{prelude::*, runtime::current_thread};
+use std::time::{Duration, Instant, SystemTime};
+use tokio::{runtime::current_thread, timer::Delay};
 
 use super::{InternalEvent, InternalRequest, TimeoutRequest};
 use crate::messages::{Message, SignedMessage};
@@ -78,14 +78,15 @@ impl InternalPart {
                     }
 
                     InternalRequest::Timeout(TimeoutRequest(time, timeout)) => {
-                        let duration = time
-                            .duration_since(SystemTime::now())
-                            .unwrap_or_else(|_| Duration::from_millis(0));
-                        Either::A(
-                            future::ok::<InternalEvent, ()>(InternalEvent::Timeout(timeout))
-                                .timeout(duration)
-                                .map_err(|_| panic!("Cannot execute timeout")),
-                        )
+                        let deadline = Instant::now()
+                            + time
+                                .duration_since(SystemTime::now())
+                                .unwrap_or_else(|_| Duration::from_millis(0));
+
+                        let future = Delay::new(deadline)
+                            .map(|_| InternalEvent::Timeout(timeout))
+                            .map_err(|_| panic!("Cannot execute timeout"));
+                        Either::A(future)
                     }
 
                     InternalRequest::JumpToRound(height, round) => {

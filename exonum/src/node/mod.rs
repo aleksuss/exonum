@@ -26,7 +26,7 @@ pub use self::{
 pub mod state;
 
 use failure::Error;
-use futures::{sync::mpsc, Future, Sink};
+use futures::{future, sync::mpsc, Future, Sink};
 use tokio::runtime::current_thread;
 use tokio_threadpool::Builder as ThreadPoolBuilder;
 use toml::Value;
@@ -961,10 +961,8 @@ impl Node {
     /// Launches only consensus messages handler.
     /// This may be used if you want to customize api with the `ApiContext`.
     pub fn run_handler(mut self, handshake_params: &HandshakeParams) -> Result<(), Error> {
-        self.handler.initialize();
-
         let pool_size = self.thread_pool_size;
-        let (handler_part, network_part, internal_part) = self.into_reactor();
+        let (mut handler_part, network_part, internal_part) = self.into_reactor();
         let handshake_params = handshake_params.clone();
 
         let network_thread = thread::spawn(move || {
@@ -986,8 +984,11 @@ impl Node {
         });
 
         let mut core = current_thread::Runtime::new()?;
-        core.block_on(handler_part.run())
-            .map_err(|_| format_err!("An error in the `Handler` thread occurred"))?;
+        core.block_on(future::lazy(move || {
+            handler_part.handler.initialize();
+            handler_part.run()
+        }))
+        .map_err(|_| format_err!("An error in the `Handler` thread occurred"))?;
         network_thread.join().unwrap()
     }
 
