@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use futures::{Future, Sink};
+use tokio::runtime::current_thread;
+
 use super::{ConnectListConfig, ExternalMessage, NodeHandler, NodeTimeout};
 use crate::blockchain::Schema;
 use crate::events::{
@@ -111,7 +114,14 @@ impl NodeHandler {
 
     /// Schedule execution for later time
     pub(crate) fn execute_later(&mut self, event: InternalRequest) {
-        self.channel.internal_requests.send(event).log_error();
+        current_thread::spawn(
+            self.channel
+                .internal_requests
+                .clone()
+                .send(event)
+                .map(drop)
+                .map_err(|e| panic!("Cannot execute later")),
+        );
     }
 
     /// Broadcasts all transactions from the pool to other validators.

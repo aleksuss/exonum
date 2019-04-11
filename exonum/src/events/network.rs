@@ -18,9 +18,11 @@ use futures::{
     sync::mpsc,
     unsync, Future, IntoFuture, Sink, Stream,
 };
-use tokio::net::{TcpListener, TcpStream};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    runtime::current_thread,
+};
 use tokio_codec::Framed;
-use tokio_core::reactor::Handle;
 
 use tokio_retry::{
     strategy::{jitter, FixedInterval},
@@ -212,7 +214,6 @@ impl ConnectionPool {
 }
 
 struct Connection {
-    handle: Handle,
     socket: Framed<TcpStream, MessagesCodec>,
     receiver_rx: mpsc::Receiver<SignedMessage>,
     address: ConnectedPeerAddr,
@@ -221,14 +222,12 @@ struct Connection {
 
 impl Connection {
     fn new(
-        handle: Handle,
         socket: Framed<TcpStream, MessagesCodec>,
         receiver_rx: mpsc::Receiver<SignedMessage>,
         address: ConnectedPeerAddr,
         key: PublicKey,
     ) -> Self {
         Connection {
-            handle,
             socket,
             receiver_rx,
             address,
@@ -241,7 +240,6 @@ impl Connection {
 struct NetworkHandler {
     listen_address: SocketAddr,
     pool: ConnectionPool,
-    handle: Handle,
     network_config: NetworkConfiguration,
     network_tx: mpsc::Sender<NetworkEvent>,
     handshake_params: HandshakeParams,
@@ -250,7 +248,6 @@ struct NetworkHandler {
 
 impl NetworkHandler {
     fn new(
-        handle: Handle,
         address: SocketAddr,
         connection_pool: ConnectionPool,
         network_config: NetworkConfiguration,
@@ -259,7 +256,6 @@ impl NetworkHandler {
         connect_list: SharedConnectList,
     ) -> Self {
         NetworkHandler {
-            handle,
             listen_address: address,
             pool: connection_pool,
             network_config,
@@ -276,7 +272,6 @@ impl NetworkHandler {
 
         let handshake_params = self.handshake_params.clone();
         let network_tx = self.network_tx.clone();
-        let handle = self.handle.clone();
 
         // Incoming connections limiter
         let incoming_connections_limit = self.network_config.max_incoming_connections;
@@ -292,7 +287,6 @@ impl NetworkHandler {
                 let conn_addr = ConnectedPeerAddr::In(address);
                 let pool = pool.clone();
                 let network_tx = network_tx.clone();
-                let handle = handle.clone();
 
                 let handshake = NoiseHandshake::responder(&handshake_params, &listen_address);
                 let holder = incoming_connections_counter.clone();
@@ -318,7 +312,6 @@ impl NetworkHandler {
                             let receiver_rx =
                                 pool.add_incoming_address(&message.author(), &conn_addr);
                             let connection = Connection::new(
-                                handle.clone(),
                                 socket,
                                 receiver_rx,
                                 conn_addr,
@@ -342,7 +335,7 @@ impl NetworkHandler {
                     })
                     .map_err(log_error);
 
-                self.handle.spawn(listener);
+                current_thread::spawn(listener);
                 Ok(())
             })
     }
@@ -353,7 +346,6 @@ impl NetworkHandler {
         handshake_params: &HandshakeParams,
     ) -> impl Future<Item = (), Error = failure::Error> {
         let handshake_params = handshake_params.clone();
-        let handle = self.handle.clone();
         let network_tx = self.network_tx.clone();
         let network_config = self.network_config;
         let timeout = self.network_config.tcp_connect_retry_timeout;
@@ -401,13 +393,8 @@ impl NetworkHandler {
                             };
                             let conn_addr = ConnectedPeerAddr::Out(unresolved_address, addr);
                             pool.add(&key, conn_addr.clone(), sender_tx);
-                            let connection = Connection::new(
-                                handle,
-                                socket,
-                                receiver_rx,
-                                conn_addr,
-                                message.author(),
-                            );
+                            let connection =
+                                Connection::new(socket, receiver_rx, conn_addr, message.author());
                             to_box(Self::handle_connection(
                                 connection,
                                 message,
@@ -428,7 +415,6 @@ impl NetworkHandler {
 
     fn process_messages(
         pool: &ConnectionPool,
-        handle: &Handle,
         connection: Connection,
         network_tx: &mpsc::Sender<NetworkEvent>,
     ) -> Result<(), failure::Error> {
@@ -443,8 +429,8 @@ impl NetworkHandler {
 
         let outgoing = Self::process_outgoing_messages(sink, connection.receiver_rx);
 
-        handle.spawn(incoming);
-        handle.spawn(outgoing);
+        current_thread::spawn(incoming);
+        current_thread::spawn(outgoing);
         Ok(())
     }
 
@@ -501,10 +487,8 @@ impl NetworkHandler {
         network_tx: &mpsc::Sender<NetworkEvent>,
     ) -> impl Future<Item = (), Error = failure::Error> {
         trace!("Established connection with peer={:?}", connection.address);
-        let handle = connection.handle.clone();
-        Self::send_peer_connected_event(&connection.address, message, &network_tx).and_then(
-            move |network_tx| Self::process_messages(&pool, &handle, connection, &network_tx),
-        )
+        Self::send_peer_connected_event(&connection.address, message, &network_tx)
+            .and_then(move |network_tx| Self::process_messages(&pool, connection, &network_tx))
     }
 
     fn parse_connect_msg(raw: Option<Vec<u8>>) -> Result<Signed<Connect>, failure::Error> {
@@ -525,7 +509,6 @@ impl NetworkHandler {
         cancel_handler: unsync::oneshot::Sender<()>,
     ) -> impl Future<Item = (), Error = failure::Error> {
         let mut cancel_sender = Some(cancel_handler);
-        let handle = self.handle.clone();
 
         let handler = receiver.for_each(move |request| {
             let fut = match request {
@@ -544,7 +527,7 @@ impl NetworkHandler {
             }
             .map_err(log_error);
 
-            handle.spawn(fut);
+            current_thread::spawn(fut);
             Ok(())
         });
 
@@ -627,7 +610,6 @@ impl NetworkHandler {
 impl NetworkPart {
     pub fn run(
         self,
-        handle: &Handle,
         handshake_params: &HandshakeParams,
     ) -> impl Future<Item = (), Error = failure::Error> {
         let listen_address = self.listen_address;
@@ -637,7 +619,6 @@ impl NetworkPart {
         let (cancel_sender, cancel_handler) = unsync::oneshot::channel::<()>();
 
         let handler = NetworkHandler::new(
-            handle.clone(),
             listen_address,
             ConnectionPool::new(),
             self.network_config,

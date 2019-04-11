@@ -27,7 +27,7 @@ pub mod state;
 
 use failure::Error;
 use futures::{sync::mpsc, Future, Sink};
-use tokio_core::reactor::Core;
+use tokio::runtime::current_thread;
 use tokio_threadpool::Builder as ThreadPoolBuilder;
 use toml::Value;
 
@@ -50,10 +50,8 @@ use crate::blockchain::{
 };
 use crate::crypto::{self, read_keys_from_file, CryptoHash, Hash, PublicKey, SecretKey};
 use crate::events::{
-    error::{into_failure, LogError},
-    noise::HandshakeParams,
-    HandlerPart, InternalEvent, InternalPart, InternalRequest, NetworkConfiguration, NetworkEvent,
-    NetworkPart, NetworkRequest, SyncSender, TimeoutRequest,
+    noise::HandshakeParams, HandlerPart, InternalEvent, InternalPart, InternalRequest,
+    NetworkConfiguration, NetworkEvent, NetworkPart, NetworkRequest, TimeoutRequest,
 };
 use crate::helpers::{
     config::ConfigManager,
@@ -333,11 +331,11 @@ pub struct Configuration {
 #[derive(Debug)]
 pub struct NodeSender {
     /// Internal requests sender.
-    pub internal_requests: SyncSender<InternalRequest>,
+    pub internal_requests: mpsc::Sender<InternalRequest>,
     /// Network requests sender.
-    pub network_requests: SyncSender<NetworkRequest>,
+    pub network_requests: mpsc::Sender<NetworkRequest>,
     /// Api requests sender.
-    pub api_requests: SyncSender<ExternalMessage>,
+    pub api_requests: mpsc::Sender<ExternalMessage>,
 }
 
 /// Node role.
@@ -619,7 +617,14 @@ impl NodeHandler {
     pub fn send_to_peer<T: Into<SignedMessage>>(&mut self, public_key: PublicKey, message: T) {
         let message = message.into();
         let request = NetworkRequest::SendMessage(public_key, message);
-        self.channel.network_requests.send(request).log_error();
+        current_thread::spawn(
+            self.channel
+                .network_requests
+                .clone()
+                .send(request)
+                .map(drop)
+                .map_err(|e| panic!("Cannot send to peer, {:?}", e)),
+        )
     }
 
     /// Broadcasts given message to all peers.
@@ -651,10 +656,14 @@ impl NodeHandler {
     /// Add timeout request.
     pub fn add_timeout(&mut self, timeout: NodeTimeout, time: SystemTime) {
         let request = TimeoutRequest(time, timeout);
-        self.channel
-            .internal_requests
-            .send(request.into())
-            .log_error();
+        current_thread::spawn(
+            self.channel
+                .internal_requests
+                .clone()
+                .send(request.into())
+                .map(drop)
+                .map_err(|e| panic!("Unable to add timeout: {:?}", e)),
+        )
     }
 
     /// Adds request timeout if it isn't already requested.
@@ -784,12 +793,14 @@ impl ApiSender {
 
     /// Sends an external message.
     pub fn send_external_message(&self, message: ExternalMessage) -> Result<(), Error> {
-        self.0
-            .clone()
-            .send(message)
-            .wait()
-            .map(drop)
-            .map_err(into_failure)
+        current_thread::spawn(
+            self.0
+                .clone()
+                .send(message)
+                .map(drop)
+                .map_err(|e| panic!("Cannot send external event {:?}", e)),
+        );
+        Ok(())
     }
     /// Broadcast transaction to other node.
     pub fn broadcast_transaction(&self, tx: Signed<RawTransaction>) -> Result<(), Error> {
@@ -880,9 +891,9 @@ impl NodeChannel {
     /// Returns the channel for sending timeouts, networks and api requests.
     pub fn node_sender(&self) -> NodeSender {
         NodeSender {
-            internal_requests: self.internal_requests.0.clone().wait(),
-            network_requests: self.network_requests.0.clone().wait(),
-            api_requests: self.api_requests.0.clone().wait(),
+            internal_requests: self.internal_requests.0.clone(),
+            network_requests: self.network_requests.0.clone(),
+            api_requests: self.api_requests.0.clone(),
         }
     }
 }
@@ -957,8 +968,7 @@ impl Node {
         let handshake_params = handshake_params.clone();
 
         let network_thread = thread::spawn(move || {
-            let mut core = Core::new().map_err(into_failure)?;
-            let handle = core.handle();
+            let mut core = current_thread::Runtime::new()?;
 
             let mut pool_builder = ThreadPoolBuilder::new();
             if let Some(pool_size) = pool_size {
@@ -967,16 +977,16 @@ impl Node {
             let thread_pool = pool_builder.build();
             let executor = thread_pool.sender().clone();
 
-            core.handle().spawn(internal_part.run(handle, executor));
+            core.handle().spawn(internal_part.run(executor))?;
 
-            let network_handler = network_part.run(&core.handle(), &handshake_params);
-            core.run(network_handler)
+            let network_handler = network_part.run(&handshake_params);
+            core.block_on(network_handler)
                 .map(drop)
                 .map_err(|e| format_err!("An error in the `Network` thread occurred: {}", e))
         });
 
-        let mut core = Core::new().map_err(into_failure)?;
-        core.run(handler_part.run())
+        let mut core = current_thread::Runtime::new()?;
+        core.block_on(handler_part.run())
             .map_err(|_| format_err!("An error in the `Handler` thread occurred"))?;
         network_thread.join().unwrap()
     }

@@ -23,11 +23,7 @@ pub mod internal;
 pub mod network;
 pub mod noise;
 
-use futures::{
-    sink::Wait,
-    sync::mpsc::{self, Sender},
-    Async, Future, Poll, Stream,
-};
+use futures::{sync::mpsc, Async, Future, Poll, Stream};
 
 use std::{cmp::Ordering, time::SystemTime};
 
@@ -39,8 +35,6 @@ use crate::node::{ExternalMessage, NodeTimeout};
 mod benches;
 #[cfg(test)]
 mod tests;
-
-pub type SyncSender<T> = Wait<Sender<T>>;
 
 /// This kind of events is used to schedule execution in next event-loop ticks
 /// Usable to make flat logic and remove recursions.

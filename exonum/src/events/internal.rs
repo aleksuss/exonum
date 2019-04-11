@@ -18,9 +18,8 @@ use futures::{
     Future, Sink, Stream,
 };
 
-use tokio_core::reactor::{Handle, Timeout};
-
 use std::time::{Duration, SystemTime};
+use tokio::{prelude::*, runtime::current_thread};
 
 use super::{InternalEvent, InternalRequest, TimeoutRequest};
 use crate::messages::{Message, SignedMessage};
@@ -61,7 +60,7 @@ impl InternalPart {
     /// Represents a task that processes Internal Requests and produces Internal Events.
     /// `handle` is used to schedule additional tasks within this task.
     /// `verify_executor` is where transaction verification task is executed.
-    pub fn run<E>(self, handle: Handle, verify_executor: E) -> impl Future<Item = (), Error = ()>
+    pub fn run<E>(self, verify_executor: E) -> impl Future<Item = (), Error = ()>
     where
         E: Executor<Box<dyn Future<Item = (), Error = ()> + Send>>,
     {
@@ -82,13 +81,11 @@ impl InternalPart {
                         let duration = time
                             .duration_since(SystemTime::now())
                             .unwrap_or_else(|_| Duration::from_millis(0));
-
-                        let fut = Timeout::new(duration, &handle)
-                            .expect("Unable to create timeout")
-                            .map(|()| InternalEvent::Timeout(timeout))
-                            .map_err(|e| panic!("Cannot execute timeout: {:?}", e));
-
-                        Either::A(fut)
+                        Either::A(
+                            future::ok::<InternalEvent, ()>(InternalEvent::Timeout(timeout))
+                                .timeout(duration)
+                                .map_err(|_| panic!("Cannot execute timeout")),
+                        )
                     }
 
                     InternalRequest::JumpToRound(height, round) => {
@@ -103,7 +100,7 @@ impl InternalPart {
                 };
 
                 let send_event = Self::send_event(event, internal_tx.clone());
-                handle.spawn(send_event);
+                current_thread::spawn(send_event);
             })
             .for_each(Ok)
     }
@@ -111,7 +108,7 @@ impl InternalPart {
 
 #[cfg(test)]
 mod tests {
-    use tokio_core::reactor::Core;
+    use tokio::runtime::current_thread;
 
     use std::thread;
 
@@ -128,16 +125,15 @@ mod tests {
         };
 
         let thread = thread::spawn(|| {
-            let mut core = Core::new().unwrap();
-            let handle = core.handle();
+            let mut core = current_thread::Runtime::new().unwrap();
             let verifier = core.handle();
 
             let task = internal_part
-                .run(handle, verifier)
+                .run(verifier)
                 .map_err(drop)
                 .and_then(|()| internal_rx.into_future().map_err(drop))
                 .map(|(event, _)| event);
-            core.run(task).unwrap()
+            core.block_on(task).unwrap()
         });
 
         let request = InternalRequest::VerifyMessage(msg);

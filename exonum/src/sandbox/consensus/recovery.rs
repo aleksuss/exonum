@@ -17,6 +17,8 @@
 
 use std::time::Duration;
 
+use futures::{Future, Sink};
+
 use crate::crypto::CryptoHash;
 use crate::helpers::{user_agent, Height, Round, ValidatorId};
 use crate::node;
@@ -37,6 +39,8 @@ fn test_disable_and_enable() {
         .node_handler_mut()
         .channel
         .api_requests
+        .clone()
+        .wait()
         .send(message)
         .unwrap();
     sandbox.process_events();
@@ -56,6 +60,8 @@ fn test_disable_and_enable() {
         .node_handler_mut()
         .channel
         .api_requests
+        .clone()
+        .wait()
         .send(message)
         .unwrap();
     sandbox.process_events();

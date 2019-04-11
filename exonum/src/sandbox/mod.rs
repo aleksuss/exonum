@@ -14,6 +14,7 @@
 
 use bit_vec::BitVec;
 use futures::{sync::mpsc, Async, Future, Sink, Stream};
+use tokio::runtime::current_thread;
 
 use std::{
     cell::{Ref, RefCell, RefMut},
@@ -163,6 +164,7 @@ pub struct Sandbox {
     addresses: Vec<ConnectInfo>,
     /// Connect message used during initialization.
     connect: Option<Signed<Connect>>,
+    runtime: current_thread::Runtime,
 }
 
 impl Sandbox {
@@ -838,9 +840,9 @@ impl Sandbox {
             .clone_with_api_sender(ApiSender::new(api_channel.0.clone()));
 
         let node_sender = NodeSender {
-            network_requests: network_channel.0.clone().wait(),
-            internal_requests: internal_channel.0.clone().wait(),
-            api_requests: api_channel.0.clone().wait(),
+            network_requests: network_channel.0.clone(),
+            internal_requests: internal_channel.0.clone(),
+            api_requests: api_channel.0.clone(),
         };
 
         let connect_list = ConnectList::from_peers(inner.handler.state.peers());
@@ -893,6 +895,7 @@ impl Sandbox {
             services_map: self.services_map.clone(),
             addresses: self.addresses.clone(),
             connect: None,
+            runtime: current_thread::Runtime::new().unwrap(),
         };
         sandbox.process_events();
         sandbox
@@ -1108,9 +1111,9 @@ fn sandbox_with_services_uninitialized(
     let network_channel = mpsc::channel(100);
     let internal_channel = mpsc::channel(100);
     let node_sender = NodeSender {
-        network_requests: network_channel.0.clone().wait(),
-        internal_requests: internal_channel.0.clone().wait(),
-        api_requests: api_channel.0.clone().wait(),
+        network_requests: network_channel.0.clone(),
+        internal_requests: internal_channel.0.clone(),
+        api_requests: api_channel.0.clone(),
     };
 
     let mut handler = NodeHandler::new(
@@ -1140,6 +1143,7 @@ fn sandbox_with_services_uninitialized(
         services_map: HashMap::from_iter(service_keys),
         addresses: connect_infos,
         connect: None,
+        runtime: current_thread::Runtime::new().unwrap(),
     };
 
     // General assumption; necessary for correct work of consensus algorithm
