@@ -82,6 +82,7 @@ fn parse_strategy(s: &str) -> anyhow::Result<FlushPoolStrategy> {
 struct TimingStats {
     total_duration: Duration,
     max_duration: Duration,
+    cur_duration: Duration,
     samples: usize,
 }
 
@@ -93,7 +94,8 @@ impl fmt::Display for TimingStats {
             let avg_duration = self.total_duration.mul_f64(1.0 / (self.samples as f64));
             write!(
                 formatter,
-                "avg: {} ms, max: {} ms",
+                "cur: {} ms, avg: {} ms, max: {} ms",
+                self.cur_duration.as_millis(),
                 avg_duration.as_millis(),
                 self.max_duration.as_millis()
             )
@@ -106,6 +108,7 @@ impl TimingStats {
         if self.max_duration < dur {
             self.max_duration = dur;
         }
+        self.cur_duration = dur;
         self.total_duration += dur;
         self.samples += 1;
     }
