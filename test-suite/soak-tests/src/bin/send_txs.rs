@@ -40,6 +40,7 @@ use exonum_soak_tests::{
     services::{MainConfig, MainService, MainServiceInterface},
     NetworkBuilder, RunHandle,
 };
+use std::time::SystemTime;
 
 /// Runs a network with a service and sends transactions to it, measuring how fast
 /// transactions appear in the mempool and are confirmed.
@@ -94,7 +95,8 @@ impl fmt::Display for TimingStats {
             let avg_duration = self.total_duration.mul_f64(1.0 / (self.samples as f64));
             write!(
                 formatter,
-                "cur: {} ms, avg: {} ms, max: {} ms",
+                // "cur: {} ms, avg: {} ms, max: {} ms",
+                "{};{};{}",
                 self.cur_duration.as_millis(),
                 avg_duration.as_millis(),
                 self.max_duration.as_millis()
@@ -162,7 +164,7 @@ async fn main() {
     exonum::helpers::init_logger().ok();
 
     let args = Args::from_args();
-    println!("Running test with {:?}", args);
+    // println!("Running test with {:?}", args);
 
     let config = MainConfig {
         generate_tx_in_after_commit: false,
@@ -214,19 +216,26 @@ async fn main() {
         let now = Instant::now();
         if now - prev_report_time >= Duration::from_secs(1) {
             prev_report_time = now;
+            // println!(
+            //     "Transactions: {} total, {} committed",
+            //     i + 1,
+            //     times_to_commit.lock().unwrap().samples
+            // );
+            // println!("Time to pool: {}", times_to_pool.lock().unwrap());
             println!(
-                "Transactions: {} total, {} committed",
-                i + 1,
-                times_to_commit.lock().unwrap().samples
+                "{};{}",
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+                times_to_commit.lock().unwrap()
             );
-            println!("Time to pool: {}", times_to_pool.lock().unwrap());
-            println!("Time to commit: {}", times_to_commit.lock().unwrap());
         }
     }
 
     future::join_all(nodes.into_iter().map(RunHandle::join)).await;
 
-    println!("\nOverall results:");
-    println!("Time to pool: {}", times_to_pool.lock().unwrap());
-    println!("Time to commit: {}", times_to_commit.lock().unwrap());
+    // println!("\nOverall results:");
+    // println!("Time to pool: {}", times_to_pool.lock().unwrap());
+    // println!("Time to commit: {}", times_to_commit.lock().unwrap());
 }
