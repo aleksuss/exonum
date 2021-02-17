@@ -61,10 +61,9 @@ impl TemporaryDB {
         // For some reason, using a `WriteBatch` is significantly faster than using `DB::drop_cf`,
         // both in debug and release modes.
         let mut batch = WriteBatch::default();
-        let db_reader = self.inner.get_lock_guard();
         for name in &names {
             if name != DEFAULT_CF && name != DB_METADATA {
-                let cf = db_reader.cf_handle(name).ok_or_else(|| {
+                let cf = self.inner.db.cf_handle(name).ok_or_else(|| {
                     let message = format!("Cannot access column family {}", name);
                     crate::Error::new(message)
                 })?;
@@ -73,7 +72,8 @@ impl TemporaryDB {
         }
 
         let write_options = WriteOptions::default();
-        db_reader
+        self.inner
+            .db
             .write_opt(batch, &write_options)
             .map_err(Into::into)
     }

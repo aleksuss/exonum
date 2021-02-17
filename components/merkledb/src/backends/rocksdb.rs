@@ -16,13 +16,20 @@
 
 pub use rocksdb::{BlockBasedOptions as RocksBlockOptions, WriteOptions as RocksDBWriteOptions};
 
-use crossbeam::sync::{ShardedLock, ShardedLockReadGuard};
+// use crossbeam::sync::{ShardedLock, ShardedLockReadGuard};
 use rocksdb::{
-    self, checkpoint::Checkpoint, ColumnFamily, DBIterator, Options as RocksDbOptions, WriteBatch,
+    self, checkpoint::Checkpoint, ColumnFamily, DBCompactionStyle, DBCompressionType, DBIterator,
+    Options as RocksDbOptions, Options, WriteBatch,
 };
 use smallvec::SmallVec;
-
-use std::{fmt, iter::Peekable, mem, path::Path, sync::Arc};
+use std::{
+    fmt,
+    iter::Peekable,
+    mem,
+    path::Path,
+    sync::Arc, // RwLock, RwLockReadGuard},
+    time::SystemTime,
+};
 
 use crate::{
     db::{check_database, Change},
@@ -42,7 +49,7 @@ type InnerDB = rocksdb::DB;
 /// This structure is required to potentially adapt the interface to
 /// use different databases.
 pub struct RocksDB {
-    db: Arc<ShardedLock<InnerDB>>,
+    pub(super) db: Arc<InnerDB>,
     options: DbOptions,
 }
 
@@ -65,7 +72,7 @@ impl From<&DbOptions> for RocksDbOptions {
 /// A snapshot of a `RocksDB`.
 pub struct RocksDBSnapshot {
     snapshot: rocksdb::Snapshot<'static>,
-    db: Arc<ShardedLock<InnerDB>>,
+    db: Arc<InnerDB>,
 }
 
 /// An iterator over the entries of a `RocksDB`.
@@ -84,16 +91,19 @@ impl RocksDB {
     /// `create_if_missing` is switched on in `DbOptions`, a new database will
     /// be created at the indicated path.
     pub fn open<P: AsRef<Path>>(path: P, options: &DbOptions) -> crate::Result<Self> {
+        let mut opts: Options = options.into();
+        opts.enable_statistics();
+        opts.set_compression_type(DBCompressionType::Snappy);
         let inner = {
-            if let Ok(names) = rocksdb::DB::list_cf(&RocksDbOptions::default(), &path) {
+            if let Ok(names) = rocksdb::DB::list_cf(&opts, &path) {
                 let cf_names = names.iter().map(String::as_str).collect::<Vec<_>>();
-                rocksdb::DB::open_cf(&options.into(), path, cf_names)?
+                rocksdb::DB::open_cf(&opts, path, cf_names)?
             } else {
-                rocksdb::DB::open(&options.into(), path)?
+                rocksdb::DB::open(&opts, path)?
             }
         };
         let mut db = Self {
-            db: Arc::new(ShardedLock::new(inner)),
+            db: Arc::new(inner),
             options: *options,
         };
         check_database(&mut db)?;
@@ -107,38 +117,36 @@ impl RocksDB {
     ///
     /// [`RocksDB` docs]: https://github.com/facebook/rocksdb/wiki/Checkpoints
     pub fn create_checkpoint<T: AsRef<Path>>(&self, path: T) -> crate::Result<()> {
-        let checkpoint = Checkpoint::new(&*self.get_lock_guard())?;
+        let checkpoint = Checkpoint::new(self.db.as_ref())?;
         checkpoint.create_checkpoint(path)?;
         Ok(())
     }
 
     fn cf_exists(&self, cf_name: &str) -> bool {
-        self.get_lock_guard().cf_handle(cf_name).is_some()
+        self.db.cf_handle(cf_name).is_some()
     }
 
-    fn create_cf(&self, cf_name: &str) -> crate::Result<()> {
+    fn create_cf(&self, cf_name: &str) -> crate::Result<ColumnFamily> {
         self.db
-            .write()
-            .expect("Couldn't get write lock to DB")
             .create_cf(cf_name, &self.options.into())
             .map_err(Into::into)
     }
 
-    pub(super) fn get_lock_guard(&self) -> ShardedLockReadGuard<'_, InnerDB> {
-        self.db.read().expect("Couldn't get read lock to DB")
-    }
+    // pub(super) fn get_lock_guard(&self) -> RwLockReadGuard<'_, InnerDB> {
+    //     self.db.read().expect("Couldn't get read lock to DB")
+    // }
 
     /// Clears the column family completely, removing all keys from it.
     pub(super) fn clear_column_family(
         &self,
         batch: &mut WriteBatch,
-        cf: &ColumnFamily,
+        cf: ColumnFamily,
     ) -> crate::Result<()> {
         /// Some lexicographically large key.
         const LARGER_KEY: &[u8] = &[u8::max_value(); 1_024];
 
-        let db_reader = self.get_lock_guard();
-        let mut iter = db_reader.raw_iterator_cf(cf);
+        // let db_reader = self.get_lock_guard();
+        let mut iter = self.db.raw_iterator_cf(cf).unwrap();
         iter.seek_to_last();
         if iter.valid() {
             if let Some(key) = iter.key() {
@@ -150,7 +158,7 @@ impl RocksDB {
                 if key.len() < LARGER_KEY.len() {
                     batch.delete_range_cf::<&[u8]>(cf, &[], LARGER_KEY);
                 } else {
-                    batch.delete_range_cf::<&[u8]>(cf, &[], key);
+                    batch.delete_range_cf::<&[u8]>(cf, &[], &key);
                     batch.delete_cf(cf, &key);
                 }
             }
@@ -161,15 +169,14 @@ impl RocksDB {
     fn do_merge(&self, patch: Patch, w_opts: &RocksDBWriteOptions) -> crate::Result<()> {
         let mut batch = WriteBatch::default();
         for (resolved, changes) in patch.into_changes() {
-            if !self.cf_exists(&resolved.name) {
-                self.create_cf(&resolved.name)?;
-            }
-
-            let db_reader = self.get_lock_guard();
-            let cf = db_reader.cf_handle(&resolved.name).unwrap();
+            let cf = if !self.cf_exists(&resolved.name) {
+                self.create_cf(&resolved.name)?
+            } else {
+                self.db.cf_handle(&resolved.name).unwrap()
+            };
 
             if changes.is_cleared() {
-                self.clear_prefix(&mut batch, cf, &resolved)?;
+                self.clear_prefix(&mut batch, &cf, &resolved)?;
             }
 
             if let Some(id_bytes) = resolved.id_to_bytes() {
@@ -187,7 +194,7 @@ impl RocksDB {
                     match change {
                         Change::Put(ref value) => batch.put_cf(cf, &buffer, value),
                         Change::Delete => batch.delete_cf(cf, &buffer),
-                    }
+                    };
                 }
             } else {
                 // Write changes to the column family as-is.
@@ -195,14 +202,12 @@ impl RocksDB {
                     match change {
                         Change::Put(ref value) => batch.put_cf(cf, &key, value),
                         Change::Delete => batch.delete_cf(cf, &key),
-                    }
+                    };
                 }
             }
         }
 
-        self.get_lock_guard()
-            .write_opt(batch, w_opts)
-            .map_err(Into::into)
+        self.db.write_opt(batch, w_opts).map_err(Into::into)
     }
 
     /// Removes all keys with the specified prefix from a column family.
@@ -214,9 +219,9 @@ impl RocksDB {
     ) -> crate::Result<()> {
         if let Some(id_bytes) = resolved.id_to_bytes() {
             let next_bytes = next_id_bytes(id_bytes);
-            batch.delete_range_cf(cf, id_bytes, next_bytes);
+            batch.delete_range_cf(*cf, id_bytes, next_bytes);
         } else {
-            self.clear_column_family(batch, cf)?;
+            self.clear_column_family(batch, *cf)?;
         }
         Ok(())
     }
@@ -231,25 +236,26 @@ impl RocksDB {
             // the snapshot (`*mut ffi::rocksdb_t`) is never changed, i.e., not affected
             // by potential incoherence if the `ShardedLock` is being concurrently written to.
             // FIXME: Investigate changing `rocksdb::Snapshot` / `DB` to remove `unsafe` (ECR-4273).
-            snapshot: unsafe { mem::transmute(self.get_lock_guard().snapshot()) },
+            snapshot: unsafe { mem::transmute(self.db.snapshot()) },
             db: Arc::clone(&self.db),
         }
     }
 }
 
 impl RocksDBSnapshot {
-    fn get_lock_guard(&self) -> ShardedLockReadGuard<'_, InnerDB> {
-        self.db.read().expect("Couldn't get read lock to DB")
-    }
+    // fn get_lock_guard(&self) -> RwLockReadGuard<'_, InnerDB> {
+    //     self.db.read().expect("Couldn't get read lock to DB")
+    // }
 
     fn rocksdb_iter(&self, name: &ResolvedAddress, from: &[u8]) -> RocksDBIterator<'_> {
         use rocksdb::{Direction, IteratorMode};
 
         let from = name.keyed(from);
-        let iter = match self.get_lock_guard().cf_handle(&name.name) {
+        let iter = match self.db.cf_handle(&name.name) {
             Some(cf) => self
                 .snapshot
-                .iterator_cf(cf, IteratorMode::From(from.as_ref(), Direction::Forward)),
+                .iterator_cf(cf, IteratorMode::From(from.as_ref(), Direction::Forward))
+                .unwrap(),
             None => self.snapshot.iterator(IteratorMode::Start),
         };
         RocksDBIterator {
@@ -281,7 +287,7 @@ impl Database for RocksDB {
 
 impl Snapshot for RocksDBSnapshot {
     fn get(&self, resolved_addr: &ResolvedAddress, key: &[u8]) -> Option<Vec<u8>> {
-        if let Some(cf) = self.get_lock_guard().cf_handle(&resolved_addr.name) {
+        if let Some(cf) = self.db.cf_handle(&resolved_addr.name) {
             match self.snapshot.get_cf(cf, resolved_addr.keyed(key)) {
                 Ok(value) => value.map(|v| v.to_vec()),
                 Err(e) => panic!(e),

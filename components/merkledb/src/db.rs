@@ -36,7 +36,8 @@ use crate::{
 #[derive(Debug, Default, Clone)]
 pub struct ViewChanges {
     /// Changes within the view.
-    pub(super) data: BTreeMap<Vec<u8>, Change>,
+    // pub(super) data: BTreeMap<Vec<u8>, Change>,
+    pub data: BTreeMap<Vec<u8>, Change>,
     /// Was the view cleared as a part of changes?
     is_cleared: bool,
     /// Is the view aggregated into `state_hash` of the database?
@@ -109,8 +110,8 @@ impl ViewChanges {
 type ChangesCell = Option<Rc<ViewChanges>>;
 
 #[derive(Debug, Default)]
-struct WorkingPatch {
-    changes: RefCell<HashMap<ResolvedAddress, ChangesCell>>,
+pub struct WorkingPatch {
+    pub changes: RefCell<HashMap<ResolvedAddress, ChangesCell>>,
 }
 
 #[derive(Debug)]
@@ -145,7 +146,7 @@ impl Drop for ChangesRef<'_> {
 impl Deref for ChangesRef<'_> {
     type Target = ViewChanges;
 
-    fn deref(&self) -> &ViewChanges {
+    fn deref(&self) -> &Self::Target {
         &*self.inner
     }
 }
@@ -213,8 +214,9 @@ impl WorkingPatch {
         };
 
         if let Some(ref view_changes) = view_changes {
-            assert!(
-                Rc::strong_count(view_changes) == 1,
+            assert_eq!(
+                Rc::strong_count(view_changes),
+                1,
                 "Attempting to borrow {:?} mutably while it's borrowed immutably",
                 address
             );
@@ -393,7 +395,7 @@ pub enum Change {
 #[derive(Debug)]
 pub struct Fork {
     patch: Patch,
-    working_patch: WorkingPatch,
+    pub working_patch: WorkingPatch,
 }
 
 /// A set of changes that can be atomically applied to a `Database`.
@@ -421,7 +423,7 @@ pub struct Fork {
 #[derive(Debug)]
 pub struct Patch {
     snapshot: Box<dyn Snapshot>,
-    changes: HashMap<ResolvedAddress, ViewChanges>,
+    pub changes: HashMap<ResolvedAddress, ViewChanges>,
     /// Addresses of aggregated indexes that were changed within this patch. This information
     /// is used to update the state aggregator in `Fork::into_patch()`.
     changed_aggregated_addrs: HashMap<ResolvedAddress, String>,

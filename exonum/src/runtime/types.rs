@@ -235,9 +235,8 @@ impl ValidateInput for ArtifactId {
         // This function is similar to `is_valid_identifier` from `merkledb`, but also
         // allows `/` to be a part of artifact name.
         fn is_valid_identifier(name: &str) -> bool {
-            name.as_bytes()
-                .iter()
-                .all(|&c| is_allowed_index_name_char(c) || c == b'.' || c == b'/')
+            name.chars()
+                .all(|c| is_allowed_index_name_char(c) || c == '.' || c == '/')
         }
 
         ensure!(!self.name.is_empty(), "Artifact name should not be empty");

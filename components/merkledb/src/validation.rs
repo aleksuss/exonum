@@ -19,9 +19,8 @@ use crate::access::AccessErrorKind;
 /// Validates that an index `name` consists of allowed chars. This method does not check
 /// if `name` is empty.
 pub fn is_valid_identifier(name: &str) -> bool {
-    name.as_bytes()
-        .iter()
-        .all(|&c| is_allowed_index_name_char(c) || c == b'.')
+    name.chars() // as_bytes()
+        .all(|c| is_allowed_index_name_char(c) || c == '.')
 }
 
 /// Validates that a `prefix` consists of chars allowed for an index prefix.
@@ -30,20 +29,16 @@ pub fn is_valid_identifier(name: &str) -> bool {
 ///
 /// [full names]: fn.is_valid_identifier.html
 pub fn is_valid_index_name_component(prefix: &str) -> bool {
-    prefix
-        .as_bytes()
-        .iter()
-        .copied()
-        .all(is_allowed_index_name_char)
+    prefix.chars().all(is_allowed_index_name_char)
 }
 
 /// Checks that a character is allowed in an index name.
 ///
 /// Only these combination of symbols are allowed:
 /// `[0-9]`, `[a-z]`, `[A-Z]`, `_`, `-`.
-pub fn is_allowed_index_name_char(c: u8) -> bool {
+pub fn is_allowed_index_name_char(c: char) -> bool {
     match c {
-        b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z' | b'-' | b'_' => true,
+        '0'..='9' | 'A'..='Z' | 'a'..='z' | '-' | '_' => true,
         _ => false,
     }
 }
