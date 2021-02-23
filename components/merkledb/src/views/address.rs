@@ -320,6 +320,18 @@ impl ResolvedAddress {
             }
         }
     }
+
+    /// Returns an upper bound for `key` prefixed by the `id`.
+    pub(crate) fn upper_bound<'k>(&self, key: &'k [u8]) -> Cow<'k, [u8]> {
+        match self.id {
+            None => vec![u8::max_value(); key.len()].into(),
+            Some(id) => {
+                let mut bytes = vec![u8::max_value(); 8 + key.len()];
+                bytes.splice(..8, id.get().to_le_bytes().iter().cloned());
+                bytes.into()
+            }
+        }
+    }
 }
 
 // This conversion is only useful for tests, since all user-created indexes should have an ID set.

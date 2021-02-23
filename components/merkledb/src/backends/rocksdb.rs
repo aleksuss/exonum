@@ -241,14 +241,18 @@ impl RocksDBSnapshot {
     }
 
     fn rocksdb_iter(&self, name: &ResolvedAddress, from: &[u8]) -> RocksDBIterator<'_> {
-        use rocksdb::{Direction, IteratorMode};
-
-        let from = name.keyed(from);
+        use rocksdb::{IteratorMode, ReadOptions};
+        let mut opts = ReadOptions::default();
         let iter = match self.get_lock_guard().cf_handle(&name.name) {
-            Some(cf) => self
-                .snapshot
-                .iterator_cf(cf, IteratorMode::From(from.as_ref(), Direction::Forward)),
-            None => self.snapshot.iterator(IteratorMode::Start),
+            Some(cf) => {
+                opts.set_iterate_lower_bound(name.keyed(from));
+                opts.set_iterate_upper_bound(name.upper_bound(from));
+                self.snapshot.iterator_cf_opt(cf, opts, IteratorMode::Start)
+            }
+            None => {
+                opts.set_iterate_lower_bound(from);
+                self.snapshot.iterator_opt(IteratorMode::Start, opts)
+            }
         };
         RocksDBIterator {
             iter: iter.peekable(),
