@@ -68,7 +68,7 @@ impl TemporaryDB {
                     let message = format!("Cannot access column family {}", name);
                     crate::Error::new(message)
                 })?;
-                self.inner.clear_column_family(&mut batch, cf)?;
+                self.inner.clear_column_family(&mut batch, cf);
             }
         }
 
