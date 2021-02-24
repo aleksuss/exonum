@@ -86,10 +86,10 @@ where
 
 #[tokio::test]
 async fn node_basic_workflow() -> anyhow::Result<()> {
-    let public_addr = PUBLIC_ADDRS[0].to_string();
+    let public_addr = PUBLIC_ADDRS[0];
+    let public_api_root = format!("http://{}/api", public_addr);
+    let public_addr = public_addr.to_string();
     let private_addr = PRIVATE_ADDRS[0].to_string();
-    let public_api_root = format!("http://{}/api", &public_addr);
-    let private_api_root = format!("http://{}/api", &private_addr);
 
     let dir = TempDir::new()?;
     let dir_path = dir.path().as_os_str();
@@ -111,10 +111,11 @@ async fn node_basic_workflow() -> anyhow::Result<()> {
         )
         .execute_command()?
         .unwrap();
+    let shutdown_handle = node.shutdown_handle();
     let node_task = tokio::spawn(node.run());
     delay_for(Duration::from_secs(2)).await;
 
-    let client = reqwest::Client::default();
+    let client = reqwest::Client::new();
     // Check info about deployed artifacts returned via supervisor API.
     let url = format!("{}/services/supervisor/services", public_api_root);
     let info: DispatcherInfo = send_request(client.get(&url)).await?;
@@ -156,17 +157,11 @@ async fn node_basic_workflow() -> anyhow::Result<()> {
     let url = format!("{}/services/simple/answer", public_api_root);
     let answer: u64 = send_request(client.get(&url)).await?;
     assert_eq!(answer, 42);
-
     let url = format!("{}/services/other/answer", public_api_root);
     let answer: u64 = send_request(client.get(&url)).await?;
     assert_eq!(answer, 42);
 
-    // Shutdown the node via private system API.
-    let url = format!("{}/system/v1/shutdown", private_api_root);
-    send_request(client.post(&url)).await?;
-
-    delay_for(Duration::from_secs(5)).await; // Wait until actix workers will finish
+    shutdown_handle.shutdown().await?;
     node_task.await??;
-
     Ok(())
 }
