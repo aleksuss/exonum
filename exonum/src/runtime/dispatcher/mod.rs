@@ -846,7 +846,7 @@ impl Dispatcher {
     /// calculated for precommit and actually committed block.
     pub(crate) fn after_transactions(&self, fork: &mut Fork) -> Vec<(CallInBlock, ExecutionError)> {
         let errors = self.call_service_hooks(fork, &CallType::AfterTransactions);
-        // Self::activate_pending(fork);
+        Self::activate_pending(fork);
         errors
     }
 

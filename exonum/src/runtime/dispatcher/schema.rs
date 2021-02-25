@@ -677,44 +677,42 @@ impl Schema<&Fork> {
 
     /// Takes pending artifacts from queue.
     pub(super) fn take_pending_artifacts(&mut self) -> Vec<(ArtifactId, ArtifactAction)> {
-        // let mut index = self.pending_artifacts();
-        // let artifacts = self.artifacts();
-        // let pending_artifacts = index
-        //     .iter()
-        //     .map(|artifact| {
-        //         let action = if let Some(state) = artifacts.get(&artifact) {
-        //             debug_assert_eq!(state.status, ArtifactStatus::Active);
-        //             ArtifactAction::Deploy(state.deploy_spec)
-        //         } else {
-        //             ArtifactAction::Unload
-        //         };
-        //         (artifact, action)
-        //     })
-        //     .collect();
-        // index.clear();
-        // pending_artifacts
-        vec![]
+        let mut index = self.pending_artifacts();
+        let artifacts = self.artifacts();
+        let pending_artifacts = index
+            .iter()
+            .map(|artifact| {
+                let action = if let Some(state) = artifacts.get(&artifact) {
+                    debug_assert_eq!(state.status, ArtifactStatus::Active);
+                    ArtifactAction::Deploy(state.deploy_spec)
+                } else {
+                    ArtifactAction::Unload
+                };
+                (artifact, action)
+            })
+            .collect();
+        index.clear();
+        pending_artifacts
     }
 
     /// Takes modified service instances from queue. This method should be called
     /// after new service statuses are committed (e.g., in `commit_block`).
     pub(super) fn take_modified_instances(&mut self) -> Vec<(InstanceState, ModifiedInstanceInfo)> {
-        // let mut modified_instances = self.modified_instances();
-        // let instances = self.instances();
-        //
-        // let output = modified_instances
-        //     .iter()
-        //     .map(|(instance_name, info)| {
-        //         let state = instances
-        //             .get(&instance_name)
-        //             .expect("BUG: Instance marked as modified is not saved in `instances`");
-        //         (state, info)
-        //     })
-        //     .collect();
-        // modified_instances.clear();
-        //
-        // output
-        vec![]
+        let mut modified_instances = self.modified_instances();
+        let instances = self.instances();
+
+        let output = modified_instances
+            .iter()
+            .map(|(instance_name, info)| {
+                let state = instances
+                    .get(&instance_name)
+                    .expect("BUG: Instance marked as modified is not saved in `instances`");
+                (state, info)
+            })
+            .collect();
+        modified_instances.clear();
+
+        output
     }
 
     /// Marks a service migration as completed. This sets the service status from `Migrating`
