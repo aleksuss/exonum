@@ -19,7 +19,8 @@ pub use rocksdb::{BlockBasedOptions as RocksBlockOptions, WriteOptions as RocksD
 use crossbeam::sync::{ShardedLock, ShardedLockReadGuard};
 use ctor::{ctor, dtor};
 use rocksdb::{
-    self, checkpoint::Checkpoint, ColumnFamily, DBIterator, Options as RocksDbOptions, WriteBatch,
+    self, checkpoint::Checkpoint, Cache, ColumnFamily, DBIterator, Options as RocksDbOptions,
+    WriteBatch,
 };
 use smallvec::SmallVec;
 
@@ -114,10 +115,11 @@ impl From<DbOptions> for RocksDbOptions {
 impl From<&DbOptions> for RocksDbOptions {
     fn from(opts: &DbOptions) -> Self {
         let mut defaults = Self::default();
+        let cache = Cache::new_lru_cache(10 << 20).unwrap();
         defaults.create_if_missing(opts.create_if_missing);
         defaults.set_compression_type(opts.compression_type.into());
         defaults.set_max_open_files(opts.max_open_files.unwrap_or(-1));
-        defaults.set_db_write_buffer_size(256 << 20);
+        defaults.set_row_cache(&cache);
         defaults
     }
 }
