@@ -115,16 +115,16 @@ impl From<DbOptions> for RocksDbOptions {
 impl From<&DbOptions> for RocksDbOptions {
     fn from(opts: &DbOptions) -> Self {
         let mut defaults = Self::default();
-        let cache = Cache::new_lru_cache(2 << 30).unwrap();
-        let mut block_opts = RocksBlockOptions::default();
-        block_opts.set_block_cache(&cache);
-        defaults.set_block_based_table_factory(&block_opts);
+        // let cache = Cache::new_lru_cache(2 << 30).unwrap();
+        // let mut block_opts = RocksBlockOptions::default();
+        // block_opts.set_block_cache(&cache);
+        // defaults.set_block_based_table_factory(&block_opts);
         defaults.create_if_missing(opts.create_if_missing);
         defaults.set_compression_type(opts.compression_type.into());
         defaults.set_max_open_files(opts.max_open_files.unwrap_or(-1));
         // defaults.set_wal_ttl_seconds(60);
         // defaults.set_wal_size_limit_mb(1 << 20);
-        // defaults.set_max_total_wal_size(1 << 20);
+        defaults.set_max_total_wal_size(1 << 20);
         defaults
     }
 }
