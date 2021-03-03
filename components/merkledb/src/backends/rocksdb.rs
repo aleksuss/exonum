@@ -19,8 +19,7 @@ pub use rocksdb::{BlockBasedOptions as RocksBlockOptions, WriteOptions as RocksD
 use crossbeam::sync::{ShardedLock, ShardedLockReadGuard};
 use ctor::{ctor, dtor};
 use rocksdb::{
-    self, checkpoint::Checkpoint, Cache, ColumnFamily, DBCompressionType, DBIterator,
-    Options as RocksDbOptions, WriteBatch,
+    self, checkpoint::Checkpoint, ColumnFamily, DBIterator, Options as RocksDbOptions, WriteBatch,
 };
 use smallvec::SmallVec;
 
