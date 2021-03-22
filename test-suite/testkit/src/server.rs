@@ -81,7 +81,8 @@
 //! [`create_block_with_tx_hashes`]: ../struct.TestKit.html#method.create_block_with_tx_hashes
 //! [`rollback`]: ../struct.TestKit.html#method.rollback
 
-use actix::prelude::*;
+use actix::{Actor, Addr, Context, Handler, MailboxError, Message};
+use actix_rt::System;
 use exonum::{blockchain::ConsensusConfig, crypto::Hash, helpers::Height};
 use exonum_api::{self as api, ApiAggregator, ApiBuilder};
 use exonum_explorer::{BlockWithTransactions, BlockchainExplorer};
@@ -100,7 +101,7 @@ impl TestKitActor {
 
         let local_set = LocalSet::new();
         // `System` should be spawn before the testkit actor is added to it.
-        local_set.spawn_local(System::run_in_tokio("testkit", &local_set));
+        local_set.spawn_local(async { System::new().run() });
         // Add the testkit actor to the system and retrieve a handle to it.
         let testkit = local_set.run_until(async { Self(testkit).start() }).await;
 
@@ -270,7 +271,6 @@ mod tests {
     use exonum_merkledb::ObjectHash;
     use exonum_rust_runtime::{api, spec::Spec, Service};
     use pretty_assertions::assert_eq;
-    use tokio::time::delay_for;
 
     use std::time::Duration;
 
@@ -327,7 +327,7 @@ mod tests {
     }
 
     async fn sleep() {
-        delay_for(Duration::from_millis(20)).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
     async fn test_status(api: TestKitApi) {

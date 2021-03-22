@@ -14,8 +14,8 @@
 
 //! Module responsible for actix web API management after new service is deployed.
 
-use actix_cors::{Cors, CorsFactory};
-use actix_rt::time::delay_for;
+// use actix_cors::Cors;
+use actix_rt::time::sleep;
 use actix_web::{
     dev::Server,
     web::{self, JsonConfig},
@@ -70,11 +70,11 @@ impl WebServerConfig {
         }
     }
 
-    fn cors_factory(&self) -> CorsFactory {
-        self.allow_origin
-            .clone()
-            .map_or_else(Cors::default, CorsFactory::from)
-    }
+    // fn cors(&self) -> Cors {
+    //     self.allow_origin
+    //         .clone()
+    //         .map_or_else(Cors::default, Cors::from)
+    // }
 }
 
 /// Configuration parameters for `ApiManager`.
@@ -180,7 +180,7 @@ async fn with_retries<T>(
             Ok(value) => return Ok(value),
             Err(e) => {
                 log::warn!("{} (attempt #{}) failed: {}", description, attempt, e);
-                delay_for(timeout).await;
+                sleep(timeout).await;
             }
         }
     }
@@ -373,7 +373,7 @@ impl ApiManager {
         let mut server_builder = HttpServer::new(move || {
             App::new()
                 .app_data(server_config.json_config())
-                .wrap(server_config.cors_factory())
+                // .wrap(server_config.cors())
                 .wrap(error_handlers())
                 .service(aggregator.extend_backend(access, web::scope("api")))
         })

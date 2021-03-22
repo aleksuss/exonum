@@ -234,7 +234,7 @@ fn test_transactions_subscribe_with_partial_filter() {
     let other_tx = alice.increment(SERVICE_ID, 5);
     testkit.create_block_with_transaction(other_tx.clone());
 
-    let summaries = (0..3).map(|_| {
+    let mut summaries = (0..3).map(|_| {
         let notification: Notification = receive_message(&mut client).unwrap();
         match notification {
             Notification::Transaction(summary) => summary,
@@ -242,18 +242,13 @@ fn test_transactions_subscribe_with_partial_filter() {
         }
     });
 
-    let summaries: Vec<_> = summaries
-        .map(|summary| (summary.tx_hash, summary.location.block_height()))
-        .collect();
-    assert_eq!(
-        summaries,
-        vec![
-            (reset_tx.object_hash(), Height(1)),
-            (inc_tx.object_hash(), Height(1)),
-            (other_tx.object_hash(), Height(2)),
-        ]
-    );
-
+    let expected = vec![
+        (reset_tx.object_hash(), Height(1)),
+        (inc_tx.object_hash(), Height(1)),
+        (other_tx.object_hash(), Height(2)),
+    ];
+    assert!(summaries
+        .all(|summary| { expected.contains(&(summary.tx_hash, summary.location.block_height())) }));
     assert_no_message(&mut client);
 }
 

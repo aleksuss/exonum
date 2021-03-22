@@ -29,7 +29,7 @@ use futures::{
 };
 use reqwest::Client;
 use structopt::StructOpt;
-use tokio::time::delay_for;
+use tokio::time::sleep;
 
 use std::{fmt, time::Duration};
 
@@ -83,7 +83,10 @@ async fn probe_api(url: &str, mut cancel_rx: oneshot::Receiver<()>) -> ApiStats 
     };
 
     loop {
-        let selected = future::select(&mut cancel_rx, delay_for(API_TIMEOUT)).await;
+        let sleep = sleep(API_TIMEOUT);
+        tokio::pin!(sleep);
+        let selected = future::select(&mut cancel_rx, sleep).await;
+
         if let Either::Left(_) = selected {
             // We've received the cancellation signal; we're done.
             break;
@@ -195,7 +198,7 @@ async fn main() {
         if args.max_height.map_or(false, |max| height >= Height(max)) {
             break;
         }
-        delay_for(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(1)).await;
     }
 
     let snapshot = nodes[0].blockchain().snapshot();
@@ -266,7 +269,7 @@ mod tests {
                 panic!("Node did not achieve {:?}", EXPECTED_HEIGHT);
             }
 
-            delay_for(MAX_WAIT / 20).await;
+            sleep(MAX_WAIT / 20).await;
         }
         node.join().await;
     }

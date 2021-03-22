@@ -17,7 +17,7 @@
 //! [Actix-web](https://github.com/actix/actix-web) is an asynchronous backend
 //! for HTTP API, based on the [Actix](https://github.com/actix/actix) framework.
 
-pub use actix_cors::{Cors, CorsFactory};
+// pub use actix_cors::Cors;
 pub use actix_web::{
     http::{Method as HttpMethod, StatusCode as HttpStatusCode},
     web::Payload,
@@ -29,7 +29,7 @@ use actix_web::{
     dev::ServiceResponse,
     error::ResponseError,
     http::header,
-    middleware::errhandlers::{ErrorHandlerResponse, ErrorHandlers},
+    middleware::{ErrorHandlerResponse, ErrorHandlers},
     web::{self, scope, Json, Query},
     FromRequest,
 };
@@ -129,7 +129,7 @@ impl ResponseError for ApiError {
         };
 
         let mut response = HttpResponse::build(self.http_code)
-            .header(header::CONTENT_TYPE, "application/problem+json")
+            .append_header((header::CONTENT_TYPE, "application/problem+json"))
             .body(body);
 
         for (key, value) in self.headers.iter() {
@@ -175,7 +175,7 @@ fn json_response<T: Serialize>(actuality: Actuality, json_value: T) -> HttpRespo
 
         let warning_string = create_warning_header(&warning_text);
 
-        response.header(header::WARNING, warning_string);
+        response.append_header((header::WARNING, warning_string));
     }
 
     response.json(json_value)
@@ -264,26 +264,26 @@ where
     }
 }
 
-impl From<&AllowOrigin> for CorsFactory {
-    fn from(origin: &AllowOrigin) -> Self {
-        match *origin {
-            AllowOrigin::Any => Cors::new().finish(),
-            AllowOrigin::Whitelist(ref hosts) => {
-                let mut builder = Cors::new();
-                for host in hosts {
-                    builder = builder.allowed_origin(host);
-                }
-                builder.finish()
-            }
-        }
-    }
-}
-
-impl From<AllowOrigin> for CorsFactory {
-    fn from(origin: AllowOrigin) -> Self {
-        Self::from(&origin)
-    }
-}
+// impl From<&AllowOrigin> for Cors {
+//     fn from(origin: &AllowOrigin) -> Self {
+//         match *origin {
+//             AllowOrigin::Any => Cors::default(),
+//             AllowOrigin::Whitelist(ref hosts) => {
+//                 let mut cors = Cors::default();
+//                 for host in hosts {
+//                     cors = cors.allowed_origin(host);
+//                 }
+//                 cors
+//             }
+//         }
+//     }
+// }
+//
+// impl From<AllowOrigin> for Cors {
+//     fn from(origin: AllowOrigin) -> Self {
+//         Self::from(&origin)
+//     }
+// }
 
 trait ErrorHandlersEx {
     fn default_api_error<F: Fn(&ServiceResponse) -> ApiError + 'static>(
@@ -359,7 +359,7 @@ mod tests {
         use chrono::TimeZone;
 
         let actual_response = json_response(Actuality::Actual, 123);
-        assert_responses_eq(actual_response, HttpResponse::Ok().json(123));
+        assert_responses_eq(actual_response, HttpResponse::Ok().json(&123));
 
         let deprecated_response_no_deadline = json_response(
             Actuality::Deprecated {
@@ -375,7 +375,7 @@ mod tests {
         assert_responses_eq(
             deprecated_response_no_deadline,
             HttpResponse::Ok()
-                .header(header::WARNING, expected_warning)
+                .append_header((header::WARNING, expected_warning))
                 .json(123),
         );
 
@@ -395,7 +395,7 @@ mod tests {
         assert_responses_eq(
             deprecated_response_with_description,
             HttpResponse::Ok()
-                .header(header::WARNING, expected_warning)
+                .append_header((header::WARNING, expected_warning))
                 .json(123),
         );
 
@@ -415,7 +415,7 @@ mod tests {
         assert_responses_eq(
             deprecated_response_deadline,
             HttpResponse::Ok()
-                .header(header::WARNING, expected_warning)
+                .append_header((header::WARNING, expected_warning))
                 .json(123),
         );
     }
@@ -438,8 +438,8 @@ mod tests {
             error_code: Some(42),
         };
         let expected = HttpResponse::build(crate::HttpStatusCode::BAD_REQUEST)
-            .header(header::CONTENT_TYPE, "application/problem+json")
-            .header(header::LOCATION, "location")
+            .append_header((header::CONTENT_TYPE, "application/problem+json"))
+            .append_header((header::LOCATION, "location"))
             .body(serde_json::to_string(&body).unwrap());
         assert_responses_eq(response, expected);
     }
@@ -448,7 +448,7 @@ mod tests {
     fn api_error_to_http_response_without_body() {
         let response = ApiError::bad_request().error_response();
         let expected = HttpResponse::build(crate::HttpStatusCode::BAD_REQUEST)
-            .header(header::CONTENT_TYPE, "application/problem+json")
+            .append_header((header::CONTENT_TYPE, "application/problem+json"))
             .finish();
         assert_responses_eq(response, expected);
     }

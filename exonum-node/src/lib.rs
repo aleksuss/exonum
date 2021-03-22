@@ -85,7 +85,7 @@ use futures::{
 };
 use log::{info, trace};
 use serde_derive::{Deserialize, Serialize};
-use tokio::time::delay_for;
+use tokio::time::sleep;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -1267,7 +1267,7 @@ impl Node {
         // We assume that waiting `STOP_TIMEOUT` is acceptable for typical use cases;
         // even if the process does not terminate with the node exit,
         // running a node is generally understood as a long-term task.
-        delay_for(STOP_TIMEOUT).await;
+        sleep(STOP_TIMEOUT).await;
         res
     }
 
@@ -1336,7 +1336,7 @@ impl Reactor {
         // Creating a separate thread here seems easier than making `Node::run()` return
         // a non-`Send` future (which, e.g., precludes running nodes with `tokio::spawn`).
         thread::spawn(|| {
-            let res = System::new("exonum-node").block_on(api_task);
+            let res = System::new().block_on(api_task);
             if let Err(ref err) = res {
                 log::error!("Error in actix thread: {}", err);
             }
@@ -1383,35 +1383,34 @@ impl Reactor {
     #[cfg(unix)]
     #[allow(clippy::mut_mut, clippy::unused_unit)] // occurs in the `select!` macro
     async fn listen_to_signals() {
-        use futures::StreamExt;
         use tokio::signal::unix::{signal, SignalKind};
 
-        let int_listener = tokio::signal::ctrl_c().fuse();
+        let int_listener = tokio::signal::ctrl_c();
         futures::pin_mut!(int_listener);
 
         // If setting the signal listener fails, we replace the listener with a stream
         // that never resolves.
-        let mut term_listener = signal(SignalKind::terminate())
-            .map_or_else(|_| stream::pending().right_stream(), StreamExt::left_stream)
-            .fuse();
+        let mut term_listener = signal(SignalKind::terminate()).unwrap();
+        // .map_or_else(|_| stream::pending().right_stream(), StreamExt::left_stream)
+        // .fuse();
 
-        let mut quit_listener = signal(SignalKind::quit())
-            .map_or_else(|_| stream::pending().right_stream(), StreamExt::left_stream)
-            .fuse();
+        let mut quit_listener = signal(SignalKind::quit()).unwrap();
+        // .map_or_else(|_| stream::pending().right_stream(), StreamExt::left_stream)
+        // .fuse();
 
         // We also register a SIGHUP listener which ignores the signal.
         if let Ok(mut hangup_listener) = signal(SignalKind::hangup()) {
             tokio::spawn(async move {
-                while let Some(()) = hangup_listener.next().await {
+                while let Some(()) = hangup_listener.recv().await {
                     log::info!("Received SIGHUP; ignoring");
                 }
             });
         }
 
-        futures::select! {
+        tokio::select! {
             _ = int_listener => (),
-            _ = term_listener.next() => (),
-            _ = quit_listener.next() => (),
+            _ = term_listener.recv() => (),
+            _ = quit_listener.recv() => (),
         };
     }
 

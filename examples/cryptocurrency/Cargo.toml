@@ -25,7 +25,7 @@ exonum-proto = { version = "1.0.0", path = "../../components/proto" }
 exonum-rust-runtime = { version = "1.0.0", path = "../../runtimes/rust" }
 
 anyhow = "1.0"
-protobuf = "2.17.0"
+protobuf = "2.22"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
@@ -36,12 +36,12 @@ exonum-explorer-service = { version = "1.0.0", path = "../../services/explorer" 
 exonum-testkit = { version = "1.0.0", path = "../../test-suite/testkit" }
 
 assert_matches = "1.2.0"
-pretty_assertions = "0.6.1"
+pretty_assertions = "0.7"
 rand = "0.7"
 
 [dev-dependencies.tokio]
-version = "0.2.13"
-features = ["blocking", "dns", "io-util", "macros", "rt-threaded", "tcp", "time"]
+version = "1.4"
+features = ["io-util", "macros", "rt", "rt-multi-thread", "net", "time"]
 
 [build-dependencies]
 exonum-build = { version = "1.0.1", path = "../../components/build" }

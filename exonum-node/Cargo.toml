@@ -17,22 +17,22 @@ travis-ci = { repository = "exonum/exonum" }
 
 [dependencies]
 anyhow = "1.0"
-actix-rt = "1.1"
+actix-rt = "2.1"
 async-trait = "0.1"
 bit-vec = "0.6"
 byteorder = { version = "1.3", features = ["i128"] }
-bytes = "0.5"
+bytes = "1.0"
 chrono = "0.4.6"
 futures = "0.3.4"
-futures-retry = "0.5"
+futures-retry = "0.6"
 log = "0.4.6"
-protobuf = { version = "2.17.0", features = ["with-serde"] }
+protobuf = { version = "2.22", features = ["with-serde"] }
 rand = "0.7"
 serde = "1.0"
 serde_derive = "1.0"
 snow = { version = "0.7.0", default-features = false }
 thiserror = "1.0"
-tokio-util = { version = "0.3.0", features = ["codec"] }
+tokio-util = { version = "0.6", features = ["codec"] }
 
 exonum = { version = "1.0.0", path = "../exonum" }
 exonum-api = { version = "1.0.0", path = "../components/api" }
@@ -42,24 +42,24 @@ exonum-proto = { version = "1.0.0", path = "../components/proto" }
 exonum_sodiumoxide = { version = "0.0.23", optional = true }
 
 [dependencies.tokio]
-version = "0.2.22"
-features = ["blocking", "dns", "io-util", "macros", "rt-threaded", "signal", "tcp", "time"]
+version = "1.4"
+features = ["io-util", "macros", "rt", "rt-multi-thread", "net", "time", "signal"]
 
 [dev-dependencies]
 bincode = "1.3"
-criterion = "0.3.0"
+criterion = "0.3"
 hex = "0.4"
-pretty_assertions = "0.6.1"
+pretty_assertions = "0.7"
 serde_json = "1.0"
-toml = "0.5.6"
+toml = "0.5"
 
 exonum-rust-runtime = { version = "1.0.0", path = "../runtimes/rust" }
 
 # Dependencies for the Unix-specific `signals` test.
 [target.'cfg(unix)'.dev_dependencies]
-nix = "0.17.0"
-reqwest = { version = "0.10.2", features = ["blocking"] }
-rusty-fork = "0.2.2"
+nix = "0.17"
+reqwest = { version = "0.11", features = ["blocking"] }
+rusty-fork = "0.3"
 
 [build-dependencies]
 exonum-build = { version = "1.0.1", path = "../components/build" }

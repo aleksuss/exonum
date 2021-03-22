@@ -196,6 +196,7 @@ pub use exonum_explorer::api::websocket::{
 };
 
 use actix::prelude::*;
+use actix_derive::Message;
 use actix_web_actors::ws;
 use exonum::{
     blockchain::{Blockchain, Schema},
@@ -209,7 +210,9 @@ use hex::FromHex;
 
 use std::{
     collections::{BTreeMap, HashMap},
-    fmt, mem,
+    fmt,
+    future::Future,
+    mem,
     sync::{Arc, Mutex, Weak},
     time::Duration,
 };

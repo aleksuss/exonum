@@ -329,13 +329,11 @@ impl NetworkHandler {
     }
 
     async fn listener(self) -> anyhow::Result<()> {
-        let mut listener = TcpListener::bind(&self.listen_address).await?;
-        let mut incoming_connections = listener.incoming();
-
+        let listener = TcpListener::bind(&self.listen_address).await?;
         // Incoming connections limiter
         let incoming_connections_limit = self.network_config.max_incoming_connections;
 
-        while let Some(mut socket) = incoming_connections.try_next().await? {
+        while let Ok((mut socket, _)) = listener.accept().await {
             let peer_address = match socket.peer_addr() {
                 Ok(address) => address,
                 Err(err) => {
@@ -519,7 +517,7 @@ impl NetworkHandler {
     ) -> anyhow::Result<()> {
         socket.set_nodelay(network_config.tcp_nodelay)?;
         let duration = network_config.tcp_keep_alive.map(Duration::from_millis);
-        socket.set_keepalive(duration)?;
+        socket.set_linger(duration)?;
         Ok(())
     }
 
